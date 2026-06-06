@@ -3,6 +3,7 @@ package mysqldrv
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 
 	"github.com/go-sql-driver/mysql"
@@ -19,6 +20,7 @@ func TestClassifyError(t *testing.T) {
 		wantDetailsNil bool
 		wantMysqlCode  uint16
 		wantSQL        string
+		wantNoMysqlCode bool // For TIMEOUT errors that shouldn't have mysql_error_code
 	}{
 		{
 			name:           "nil error returns internal error",
@@ -29,13 +31,13 @@ func TestClassifyError(t *testing.T) {
 			wantDetailsNil: true,
 		},
 		{
-			name:           "context.DeadlineExceeded returns timeout",
+			name:           "context.DeadlineExceeded returns timeout without mysql_error_code",
 			err:            context.DeadlineExceeded,
 			sql:            "SELECT * FROM users",
 			wantCode:       output.ErrorCodeTimeout,
 			wantMsg:        "operation timed out",
 			wantDetailsNil: false,
-			wantMysqlCode:  0,
+			wantNoMysqlCode: true,
 			wantSQL:        "SELECT * FROM users",
 		},
 		{
@@ -45,7 +47,7 @@ func TestClassifyError(t *testing.T) {
 			wantCode:       output.ErrorCodeTimeout,
 			wantMsg:        "operation timed out",
 			wantDetailsNil: false,
-			wantMysqlCode:  0,
+			wantNoMysqlCode: true,
 			wantSQL:        "",
 		},
 		{
@@ -59,10 +61,10 @@ func TestClassifyError(t *testing.T) {
 			wantSQL:        "SELECT 1",
 		},
 		{
-			name:           "MySQL error 1044 returns auth error",
+			name:           "MySQL error 1044 returns permission denied (not auth error)",
 			err:            &mysql.MySQLError{Number: 1044, Message: "Access denied for database 'testdb'"},
 			sql:            "USE testdb",
-			wantCode:       output.ErrorCodeAuthError,
+			wantCode:       output.ErrorCodePermissionDenied,
 			wantMsg:        "Access denied for database 'testdb'",
 			wantDetailsNil: false,
 			wantMysqlCode:  1044,
@@ -99,14 +101,24 @@ func TestClassifyError(t *testing.T) {
 			wantSQL:        "SELEC * FROM users",
 		},
 		{
-			name:           "MySQL error 3024 returns query error (interrupted)",
+			name:           "MySQL error 3024 returns timeout (not query error)",
 			err:            &mysql.MySQLError{Number: 3024, Message: "Query execution was interrupted"},
 			sql:            "SELECT * FROM large_table",
-			wantCode:       output.ErrorCodeQueryError,
+			wantCode:       output.ErrorCodeTimeout,
 			wantMsg:        "Query execution was interrupted",
 			wantDetailsNil: false,
-			wantMysqlCode:  3024,
+			wantNoMysqlCode: true,
 			wantSQL:        "SELECT * FROM large_table",
+		},
+		{
+			name:           "MySQL error 3024 without sql",
+			err:            &mysql.MySQLError{Number: 3024, Message: "Query execution was interrupted"},
+			sql:            "",
+			wantCode:       output.ErrorCodeTimeout,
+			wantMsg:        "Query execution was interrupted",
+			wantDetailsNil: false,
+			wantNoMysqlCode: true,
+			wantSQL:        "",
 		},
 		{
 			name:           "MySQL error 1146 without sql",
@@ -119,12 +131,22 @@ func TestClassifyError(t *testing.T) {
 			wantSQL:        "",
 		},
 		{
-			name:           "Unknown MySQL error returns internal error with nil details",
+			name:           "MySQL client error (2000-2999) returns query error",
+			err:            &mysql.MySQLError{Number: 2005, Message: "Unknown MySQL server host"},
+			sql:            "SELECT 1",
+			wantCode:       output.ErrorCodeQueryError,
+			wantMsg:        "Unknown MySQL server host",
+			wantDetailsNil: false,
+			wantMysqlCode:  2005,
+			wantSQL:        "SELECT 1",
+		},
+		{
+			name:           "MySQL server error (1000-1999, unmapped) returns internal error with nil details",
 			err:            &mysql.MySQLError{Number: 1213, Message: "Deadlock found when trying to get lock"},
 			sql:            "UPDATE users SET x=1",
 			wantCode:       output.ErrorCodeInternalError,
 			wantMsg:        "Deadlock found when trying to get lock",
-			wantDetailsNil: true, // INTERNAL_ERROR must have nil/empty details
+			wantDetailsNil: true,
 		},
 		{
 			name:           "Non-MySQL error returns internal error with nil details",
@@ -132,7 +154,31 @@ func TestClassifyError(t *testing.T) {
 			sql:            "SELECT 1",
 			wantCode:       output.ErrorCodeInternalError,
 			wantMsg:        "some random error",
-			wantDetailsNil: true, // INTERNAL_ERROR must have nil/empty details
+			wantDetailsNil: true,
+		},
+		{
+			name:           "Network error returns connection error",
+			err:            &net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")},
+			sql:            "SELECT 1",
+			wantCode:       output.ErrorCodeConnectionError,
+			wantMsg:        "dial tcp: connection refused",
+			wantDetailsNil: true,
+		},
+		{
+			name:           "Connection refused error message returns connection error",
+			err:            errors.New("connection refused"),
+			sql:            "SELECT 1",
+			wantCode:       output.ErrorCodeConnectionError,
+			wantMsg:        "connection refused",
+			wantDetailsNil: true,
+		},
+		{
+			name:           "Network timeout error message returns connection error",
+			err:            errors.New("network timeout"),
+			sql:            "SELECT 1",
+			wantCode:       output.ErrorCodeConnectionError,
+			wantMsg:        "network timeout",
+			wantDetailsNil: true,
 		},
 		{
 			name:           "Wrapped MySQL error 1045 is detected",
@@ -151,7 +197,27 @@ func TestClassifyError(t *testing.T) {
 			wantCode:       output.ErrorCodeTimeout,
 			wantMsg:        "operation timed out",
 			wantDetailsNil: false,
-			wantMysqlCode:  0,
+			wantNoMysqlCode: true,
+			wantSQL:        "SELECT 1",
+		},
+		{
+			name:           "Wrapped permission denied error is detected",
+			err:            wrappedError{&mysql.MySQLError{Number: 1044, Message: "Access denied"}},
+			sql:            "SELECT 1",
+			wantCode:       output.ErrorCodePermissionDenied,
+			wantMsg:        "Access denied",
+			wantDetailsNil: false,
+			wantMysqlCode:  1044,
+			wantSQL:        "SELECT 1",
+		},
+		{
+			name:           "Wrapped timeout error 3024 is detected",
+			err:            wrappedError{&mysql.MySQLError{Number: 3024, Message: "Query interrupted"}},
+			sql:            "SELECT 1",
+			wantCode:       output.ErrorCodeTimeout,
+			wantMsg:        "Query interrupted",
+			wantDetailsNil: false,
+			wantNoMysqlCode: true,
 			wantSQL:        "SELECT 1",
 		},
 	}
@@ -178,13 +244,21 @@ func TestClassifyError(t *testing.T) {
 					return
 				}
 
-				mysqlCode, ok := gotDetails["mysql_error_code"]
-				if !ok {
-					t.Errorf("ClassifyError() details missing mysql_error_code")
-				} else if mysqlCode.(uint16) != tt.wantMysqlCode {
-					t.Errorf("ClassifyError() mysql_error_code = %v, want %v", mysqlCode, tt.wantMysqlCode)
+				// Check mysql_error_code presence/absence
+				if tt.wantNoMysqlCode {
+					if _, ok := gotDetails["mysql_error_code"]; ok {
+						t.Errorf("ClassifyError() details should not contain mysql_error_code for TIMEOUT errors")
+					}
+				} else {
+					mysqlCode, ok := gotDetails["mysql_error_code"]
+					if !ok {
+						t.Errorf("ClassifyError() details missing mysql_error_code")
+					} else if mysqlCode.(uint16) != tt.wantMysqlCode {
+						t.Errorf("ClassifyError() mysql_error_code = %v, want %v", mysqlCode, tt.wantMysqlCode)
+					}
 				}
 
+				// Check sql field
 				if tt.wantSQL != "" {
 					sql, ok := gotDetails["sql"]
 					if !ok {
