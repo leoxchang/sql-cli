@@ -3,6 +3,7 @@ package output
 import (
 	"encoding/json"
 	"io"
+	"os"
 )
 
 // WriteSuccess writes a success envelope to the provided writer.
@@ -23,6 +24,30 @@ func WriteSuccess(w io.Writer, columns []Column, rows []any, rowCount int, elaps
 	}
 
 	_, err = w.Write(data)
+	return err
+}
+
+// WriteError writes a failure envelope to stdout.
+// This is a convenience function for CLI handlers that need to emit JSON errors.
+func WriteError(envelope *Envelope) error {
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+
+	_, err = os.Stdout.Write(data)
+	return err
+}
+
+// WriteEnvelope writes an envelope to stdout.
+// This is a convenience function for CLI handlers that need to emit JSON output.
+func WriteEnvelope(envelope *Envelope) error {
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+
+	_, err = os.Stdout.Write(data)
 	return err
 }
 
