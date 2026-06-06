@@ -460,3 +460,96 @@ func TestScanKeywords_KeywordVariations(t *testing.T) {
 		})
 	}
 }
+
+func TestScanKeywords_UTF8(t *testing.T) {
+	tests := []struct {
+		name     string
+		sql      string
+		expected []string
+	}{
+		{
+			name:     "UTF-8 identifier with INSERT keyword",
+			sql:      "INSERT INTO 用户表 VALUES (1)",
+			expected: []string{"INSERT"},
+		},
+		{
+			name:     "UTF-8 identifier with UPDATE keyword",
+			sql:      "UPDATE 用户表 SET 名字 = '测试'",
+			expected: []string{"UPDATE"},
+		},
+		{
+			name:     "UTF-8 identifier with DELETE keyword",
+			sql:      "DELETE FROM 用户表 WHERE 编号 = 1",
+			expected: []string{"DELETE"},
+		},
+		{
+			name:     "UTF-8 string literal with keyword inside",
+			sql:      "SELECT 'INSERT INTO 用户表' FROM dual",
+			expected: nil,
+		},
+		{
+			name:     "UTF-8 string literal with escaped quote and keyword",
+			sql:      "INSERT INTO 用户表 VALUES ('测试''INSERT')",
+			expected: []string{"INSERT"},
+		},
+		{
+			name:     "UTF-8 comment with keyword inside",
+			sql:      "SELECT * FROM 用户表 -- INSERT INTO 用户表\nWHERE 编号 = 1",
+			expected: nil,
+		},
+		{
+			name:     "UTF-8 block comment with keyword inside",
+			sql:      "SELECT * FROM 用户表 /* INSERT INTO 用户表 */ WHERE 编号 = 1",
+			expected: nil,
+		},
+		{
+			name:     "mixed ASCII and UTF-8 identifiers",
+			sql:      "INSERT INTO users_用户 VALUES (1, '测试')",
+			expected: []string{"INSERT"},
+		},
+		{
+			name:     "UTF-8 identifier with keyword as substring should not match",
+			sql:      "SELECT * FROM 插入表 WHERE 编号 = 1",
+			expected: nil,
+		},
+		{
+			name:     "UTF-8 with multiple keywords",
+			sql:      "INSERT INTO 用户表 VALUES (1); DELETE FROM 日志表",
+			expected: []string{"INSERT", "DELETE"},
+		},
+		{
+			name:     "emoji in string with keyword",
+			sql:      "INSERT INTO users VALUES ('🎉INSERT🎉')",
+			expected: []string{"INSERT"},
+		},
+		{
+			name:     "multi-byte characters at boundaries",
+			sql:      "中文INSERT中文",
+			expected: nil,
+		},
+		{
+			name:     "keyword with UTF-8 underscores",
+			sql:      "INSERT INTO 用户_表 VALUES (1)",
+			expected: []string{"INSERT"},
+		},
+		{
+			name:     "complex UTF-8 with escaped quotes",
+			sql:      "INSERT INTO 用户表 VALUES ('中文''测试''INSERT')",
+			expected: []string{"INSERT"},
+		},
+		{
+			name:     "UTF-8 identifier that looks like keyword but isn't",
+			sql:      "SELECT * FROM 用户INSERT表",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ScanKeywords(tt.sql)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("ScanKeywords() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}

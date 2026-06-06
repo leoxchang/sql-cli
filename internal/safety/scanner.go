@@ -34,14 +34,17 @@ var writeKeywords = map[string]bool{
 // Single-pass scanner that tracks state to avoid false positives
 func ScanKeywords(sql string) []string {
 	var keywords []string
+	seen := make(map[string]bool) // Track seen keywords for O(1) deduplication
 	state := StateNormal
 	var currentWord strings.Builder
 
+	// Convert to []rune for proper UTF-8 character iteration
+	runes := []rune(sql)
 	i := 0
-	n := len(sql)
+	n := len(runes)
 
 	for i < n {
-		ch := sql[i]
+		ch := runes[i]
 
 		switch state {
 		case StateNormal:
@@ -49,28 +52,28 @@ func ScanKeywords(sql string) []string {
 			if ch == '\'' {
 				state = StateInString
 				i++
-				flushWord(&currentWord, &keywords)
-			} else if i+1 < n && ch == '-' && sql[i+1] == '-' {
+				flushWord(&currentWord, &keywords, seen)
+			} else if i+1 < n && ch == '-' && runes[i+1] == '-' {
 				state = StateInLineComment
 				i += 2
-				flushWord(&currentWord, &keywords)
-			} else if i+1 < n && ch == '/' && sql[i+1] == '*' {
+				flushWord(&currentWord, &keywords, seen)
+			} else if i+1 < n && ch == '/' && runes[i+1] == '*' {
 				state = StateInBlockComment
 				i += 2
-				flushWord(&currentWord, &keywords)
-			} else if isWordChar(rune(ch)) {
-				currentWord.WriteRune(unicode.ToUpper(rune(ch)))
+				flushWord(&currentWord, &keywords, seen)
+			} else if isWordChar(ch) {
+				currentWord.WriteRune(unicode.ToUpper(ch))
 				i++
 			} else {
 				// Word boundary
-				flushWord(&currentWord, &keywords)
+				flushWord(&currentWord, &keywords, seen)
 				i++
 			}
 
 		case StateInString:
 			if ch == '\'' {
 				// Check for escaped quote ''
-				if i+1 < n && sql[i+1] == '\'' {
+				if i+1 < n && runes[i+1] == '\'' {
 					// Escaped quote, skip both
 					i += 2
 				} else {
@@ -89,7 +92,7 @@ func ScanKeywords(sql string) []string {
 			i++
 
 		case StateInBlockComment:
-			if i+1 < n && ch == '*' && sql[i+1] == '/' {
+			if i+1 < n && ch == '*' && runes[i+1] == '/' {
 				state = StateNormal
 				i += 2
 			} else {
@@ -99,7 +102,7 @@ func ScanKeywords(sql string) []string {
 	}
 
 	// Flush any remaining word
-	flushWord(&currentWord, &keywords)
+	flushWord(&currentWord, &keywords, seen)
 
 	return keywords
 }
@@ -110,24 +113,15 @@ func isWordChar(ch rune) bool {
 }
 
 // flushWord checks if current word is a keyword and adds to list
-func flushWord(word *strings.Builder, keywords *[]string) {
+func flushWord(word *strings.Builder, keywords *[]string, seen map[string]bool) {
 	if word.Len() == 0 {
 		return
 	}
 
 	w := word.String()
-	if writeKeywords[w] {
-		// Check if keyword already in list (avoid duplicates)
-		found := false
-		for _, kw := range *keywords {
-			if kw == w {
-				found = true
-				break
-			}
-		}
-		if !found {
-			*keywords = append(*keywords, w)
-		}
+	if writeKeywords[w] && !seen[w] {
+		seen[w] = true
+		*keywords = append(*keywords, w)
 	}
 
 	word.Reset()
