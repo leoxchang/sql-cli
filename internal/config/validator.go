@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/qiezi999/sql-cli/internal/output"
@@ -15,6 +16,7 @@ var (
 	ErrInvalidScheme        = errors.New("scheme must be 'mysql'")
 	ErrEmptyHost            = errors.New("host cannot be empty")
 	ErrMissingPort          = errors.New("port is required (host:port format)")
+	ErrInvalidPortRange     = errors.New("port must be between 0 and 65535")
 	ErrDSNContainsNewline   = errors.New("DSN contains forbidden newline character")
 	ErrDSNContainsCarriage  = errors.New("DSN contains forbidden carriage return character")
 )
@@ -25,7 +27,13 @@ var (
 //   - Scheme is exactly "mysql" (not mysqls, http, etc.)
 //   - Host is non-empty
 //   - Port segment is present (host:port format)
+//   - Port is in valid range 0-65535
 //   - No \n or \r characters anywhere in DSN (DSN smuggling prevention)
+//
+// The database path is optional per design.md D4. The format shown in D4
+// (mysql://user:pass@host:port/db) is illustrative, not a strict requirement.
+// This allows connections without a default database, which is useful for
+// administrative queries like SHOW DATABASES.
 //
 // Returns CONFIG_ERROR for any validation failure.
 func ValidateMySQLURL(dsn string) error {
@@ -55,8 +63,18 @@ func ValidateMySQLURL(dsn string) error {
 	}
 
 	// Validate port is present
-	if parsed.Port() == "" {
+	portStr := parsed.Port()
+	if portStr == "" {
 		return ErrMissingPort
+	}
+
+	// Validate port is in valid range 0-65535
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return fmt.Errorf("%w: invalid port number %q", ErrInvalidPortRange, portStr)
+	}
+	if port < 0 || port > 65535 {
+		return fmt.Errorf("%w: port %d out of range", ErrInvalidPortRange, port)
 	}
 
 	return nil

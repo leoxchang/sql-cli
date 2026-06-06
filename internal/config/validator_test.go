@@ -453,3 +453,79 @@ func TestValidateMySQLURL_EdgeCasePorts(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMySQLURL_PortOutOfRange(t *testing.T) {
+	tests := []struct {
+		name string
+		dsn  string
+	}{
+		{"negative port", "mysql://user:pass@localhost:-1/mydb"},
+		{"port too high", "mysql://user:pass@localhost:65536/mydb"},
+		{"port way too high", "mysql://user:pass@localhost:99999/mydb"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMySQLURL(tt.dsn)
+			if err == nil {
+				t.Errorf("Expected error for %s, got nil", tt.name)
+			}
+			if err != nil && !strings.Contains(err.Error(), "port") {
+				t.Errorf("Expected port range error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateMySQLURL_InvalidPortFormat(t *testing.T) {
+	tests := []struct {
+		name string
+		dsn  string
+	}{
+		{"non-numeric port", "mysql://user:pass@localhost:abc/mydb"},
+		{"empty port after colon", "mysql://user:pass@localhost:/mydb"},
+		{"port with spaces", "mysql://user:pass@localhost:33 06/mydb"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMySQLURL(tt.dsn)
+			if err == nil {
+				t.Errorf("Expected error for %s, got nil", tt.name)
+			}
+		})
+	}
+}
+
+func TestValidateMySQLURL_URLEncodedUsername(t *testing.T) {
+	tests := []struct {
+		name string
+		dsn  string
+	}{
+		{"username with encoded @ symbol", "mysql://user%40name:pass@localhost:3306/mydb"},
+		{"username with encoded space", "mysql://user%20name:pass@localhost:3306/mydb"},
+		{"username with encoded colon", "mysql://user%3Aname:pass@localhost:3306/mydb"},
+		{"username with encoded special chars", "mysql://user%2B%26%3D:pass@localhost:3306/mydb"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMySQLURL(tt.dsn)
+			if err != nil {
+				t.Errorf("Expected valid URL with URL-encoded username to pass, got error: %v", err)
+			}
+		})
+	}
+}
+
+func TestMySQLURLToDriverDSN_URLEncodedUsername(t *testing.T) {
+	dsn := "mysql://user%40name:pass@localhost:3306/mydb"
+	result, err := MySQLURLToDriverDSN(dsn)
+	if err != nil {
+		t.Errorf("Expected no error, got: %v", err)
+	}
+	// URL-encoded username should be preserved in driver DSN
+	if !strings.Contains(result, "tcp(localhost:3306)") {
+		t.Errorf("Expected result to contain tcp format, got: %q", result)
+	}
+}
