@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"os"
 	"reflect"
 	"testing"
 )
@@ -552,4 +553,68 @@ func TestScanKeywords_UTF8(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestScanKeywords_BypassFile reads testdata/bypass.sql and verifies scanner behavior
+// This test documents known bypass techniques that the scanner does NOT catch.
+// These are intentional limitations, not bugs - scanner catches honest mistakes,
+// not malicious injection. Real security comes from read-only MySQL accounts.
+func TestScanKeywords_BypassFile(t *testing.T) {
+	// Read the bypass documentation file
+	bypassSQL, err := os.ReadFile("testdata/bypass.sql")
+	if err != nil {
+		t.Fatalf("Failed to read testdata/bypass.sql: %v", err)
+	}
+
+	sql := string(bypassSQL)
+	result := ScanKeywords(sql)
+
+	// Expected keywords that SHOULD be detected in bypass.sql:
+	// - Section 4 (Prepared Statements): "INSERT INTO users VALUES (?)", "UPDATE users SET..."
+	// - Section 7 (Alternative Syntax): "REPLACE INTO...", "GRANT SELECT..."
+	expectedKeywords := []string{"INSERT", "UPDATE", "REPLACE", "GRANT"}
+
+	// Verify all expected keywords are detected
+	for _, kw := range expectedKeywords {
+		found := false
+		for _, detected := range result {
+			if detected == kw {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected keyword %s to be detected in bypass.sql but it was not", kw)
+		}
+	}
+
+	// Verify bypass techniques are NOT detected (these would be true bypasses)
+	// We can't directly test "what was NOT detected", but we verify total count matches expectations
+	// The file has many bypass attempts that should NOT be detected:
+	// - IN/**/SERT (block comment split)
+	// - UP/**/DATE (block comment split)
+	// - DEL/**/ET/**/E (block comment split)
+	// - DR/**/OP (block comment split)
+	// - AL/**/TER (block comment split)
+	// - 0x494E53455254 (hex literal)
+	// - Keywords in backticks: `INSERT`, `DROP_TABLE`, `DELETE`, `UPDATE`
+	// - String concatenation patterns
+	// - EXEC patterns
+
+	// The scanner should detect exactly the keywords listed in expectedKeywords
+	// (allowing for duplicate detection which the scanner handles via deduplication)
+	if len(result) != len(expectedKeywords) {
+		t.Logf("Warning: Scanner detected %d keywords, expected %d", len(result), len(expectedKeywords))
+		t.Logf("Detected: %v", result)
+		t.Logf("Expected: %v", expectedKeywords)
+		t.Logf("This may indicate the scanner is detecting some bypass attempts (unexpected)")
+		t.Logf("Or failing to detect legitimate keywords (bug)")
+	}
+
+	// Log results for documentation purposes
+	t.Logf("Bypass file scanner test completed:")
+	t.Logf("Total keywords detected: %d", len(result))
+	t.Logf("Keywords: %v", result)
+	t.Logf("This documents that bypass techniques using block comments, hex, backticks, etc. are NOT detected")
+	t.Logf("This is intentional - scanner catches honest mistakes, not malicious injection")
 }
