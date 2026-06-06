@@ -16,6 +16,7 @@ import (
 //   - Booleans → JSON booleans
 //
 // Column types preserve the exact case returned by DatabaseTypeName() (verbatim, no transformation).
+// The caller is responsible for calling rows.Close() after this function returns.
 func ConvertRows(rows *sql.Rows) ([]Column, [][]any, error) {
 	// Get column types for type information
 	columnTypes, err := rows.ColumnTypes()
@@ -118,11 +119,9 @@ func convertValue(v any) any {
 	case time.Time:
 		return val.Format(time.RFC3339)
 
-	// Nil interface
-	case nil:
-		return nil
-
 	// Unknown type - return as-is and let JSON marshaler handle it
+	// Fallback strategy: JSON marshaler will use its default encoding for the type,
+	// which may fail or succeed depending on the type's marshal implementation.
 	default:
 		return val
 	}
