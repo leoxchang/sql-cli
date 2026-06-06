@@ -18,30 +18,90 @@ func TestRun_NoArgs(t *testing.T) {
 }
 
 func TestRun_HelpFlag(t *testing.T) {
+	// Capture stdout to verify help is written there
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
 	// --help should show help and return 0
 	exitCode := Run([]string{"sql-cli", "--help"})
+
+	// Restore stdout
+	w.Close()
+	os.Stdout = oldStdout
+
+	// Read captured output
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0 for --help, got %d", exitCode)
 	}
+	if output == "" {
+		t.Error("help text should be written to stdout")
+	}
 
 	// -h should also work
+	r, w, _ = os.Pipe()
+	os.Stdout = w
 	exitCode = Run([]string{"sql-cli", "-h"})
+	w.Close()
+	os.Stdout = oldStdout
+
+	buf.Reset()
+	buf.ReadFrom(r)
+	output = buf.String()
+
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0 for -h, got %d", exitCode)
+	}
+	if output == "" {
+		t.Error("help text should be written to stdout for -h")
 	}
 }
 
 func TestRun_VersionFlag(t *testing.T) {
+	// Capture stdout to verify version is written there
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
 	// --version should show version and return 0 (without DSN)
 	exitCode := Run([]string{"sql-cli", "--version"})
+
+	// Restore stdout
+	w.Close()
+	os.Stdout = oldStdout
+
+	// Read captured output
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	output := buf.String()
+
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0 for --version, got %d", exitCode)
 	}
+	if output == "" {
+		t.Error("version text should be written to stdout")
+	}
 
 	// version subcommand should also work
+	r, w, _ = os.Pipe()
+	os.Stdout = w
 	exitCode = Run([]string{"sql-cli", "version"})
+	w.Close()
+	os.Stdout = oldStdout
+
+	buf.Reset()
+	buf.ReadFrom(r)
+	output = buf.String()
+
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0 for version subcommand, got %d", exitCode)
+	}
+	if output == "" {
+		t.Error("version text should be written to stdout for version subcommand")
 	}
 }
 
@@ -250,5 +310,10 @@ func TestOutputFormat_OnError(t *testing.T) {
 	// Output should not be empty
 	if outputStr == "" {
 		t.Error("output should not be empty on error")
+	}
+
+	// Verify newline is appended after JSON
+	if outputStr[len(outputStr)-1] != '\n' {
+		t.Error("output should end with newline for proper terminal display")
 	}
 }

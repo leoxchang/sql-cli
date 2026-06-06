@@ -162,9 +162,11 @@ func handleQuery(dsn string, args []string) int {
 	return output.ErrorCodeInternalError.ExitCode()
 }
 
-// printHelp displays usage information
+// printHelp displays usage information to stdout.
+// Help goes to stdout for grep/piping compatibility.
+// stderr is reserved for debug/diagnostics only.
 func printHelp() {
-	fmt.Fprint(os.Stderr, `sql-cli - MySQL command-line interface for agents
+	fmt.Fprint(os.Stdout, `sql-cli - MySQL command-line interface for agents
 
 Usage:
   sql-cli --dsn <dsn> <subcommand> [args]
@@ -200,8 +202,10 @@ Exit Codes:
 `)
 }
 
-// printVersion displays version information
+// printVersion displays version information to stdout.
+// Version goes to stdout for grep/piping compatibility.
+// stderr is reserved for debug/diagnostics only.
 func printVersion() {
 	// Version will be set during build via ldflags
-	fmt.Fprintln(os.Stderr, "sql-cli version 0.1.0")
+	fmt.Fprintln(os.Stdout, "sql-cli version 0.1.0")
 }

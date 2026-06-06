@@ -29,11 +29,19 @@ func WriteSuccess(w io.Writer, columns []Column, rows []any, rowCount int, elaps
 
 // WriteError writes a failure envelope to stdout.
 // This is a convenience function for CLI handlers that need to emit JSON errors.
+//
+// Note: This is a "fire and forget" function in error paths. If stdout write fails
+// (e.g., broken pipe), the error is not propagated up because the CLI is already
+// in an error state and about to exit. The returned error is primarily useful
+// for testing and non-error-path scenarios.
 func WriteError(envelope *Envelope) error {
 	data, err := json.Marshal(envelope)
 	if err != nil {
 		return err
 	}
+
+	// Append newline to prevent next shell prompt from appearing on same line
+	data = append(data, '\n')
 
 	_, err = os.Stdout.Write(data)
 	return err
@@ -41,11 +49,17 @@ func WriteError(envelope *Envelope) error {
 
 // WriteEnvelope writes an envelope to stdout.
 // This is a convenience function for CLI handlers that need to emit JSON output.
+//
+// Note: Appends a newline after JSON to prevent next shell prompt from appearing
+// on the same line, improving terminal display UX.
 func WriteEnvelope(envelope *Envelope) error {
 	data, err := json.Marshal(envelope)
 	if err != nil {
 		return err
 	}
+
+	// Append newline to prevent next shell prompt from appearing on same line
+	data = append(data, '\n')
 
 	_, err = os.Stdout.Write(data)
 	return err
