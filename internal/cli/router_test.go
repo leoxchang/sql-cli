@@ -182,7 +182,8 @@ func TestRun_SubcommandsNotImplemented(t *testing.T) {
 	os.Setenv("SQL_CLI_DSN", "mysql://root:test@localhost:3306/")
 	defer os.Unsetenv("SQL_CLI_DSN")
 
-	// All subcommands should return INTERNAL_ERROR exit code 99 until implemented
+	// Since handlers are now implemented, they will attempt to connect
+	// We expect connection/auth error, not internal error (99)
 	subcommands := []string{"databases", "tables", "describe", "query"}
 
 	for _, subcmd := range subcommands {
@@ -196,8 +197,10 @@ func TestRun_SubcommandsNotImplemented(t *testing.T) {
 		}
 
 		exitCode := Run(args)
-		if exitCode != 99 {
-			t.Errorf("expected exit code 99 for unimplemented subcommand %s, got %d", subcmd, exitCode)
+		// Handlers are implemented, will fail with connection/auth error (not 99)
+		// Expected codes: 3 (CONNECTION_ERROR), 4 (AUTH_ERROR), or similar
+		if exitCode == 99 {
+			t.Errorf("handlers should be implemented for %s, expected connection/auth error, got internal error 99", subcmd)
 		}
 	}
 }
@@ -218,9 +221,10 @@ func TestDispatch_ValidSubcommands(t *testing.T) {
 
 	for _, tc := range subcommands {
 		exitCode := dispatch(tc.name, dsn, tc.args)
-		// Should return 99 (internal error) for unimplemented handlers
-		if exitCode != 99 {
-			t.Errorf("expected exit code 99 for subcommand %s, got %d", tc.name, exitCode)
+		// Handlers are implemented, will fail with connection/auth error (not 99)
+		// Expected codes: 3 (CONNECTION_ERROR), 4 (AUTH_ERROR), or similar
+		if exitCode == 99 {
+			t.Errorf("handlers should be implemented for %s, expected connection/auth error, got internal error 99", tc.name)
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/qiezi999/sql-cli/internal/command"
 	"github.com/qiezi999/sql-cli/internal/config"
 	"github.com/qiezi999/sql-cli/internal/output"
 )
@@ -119,47 +120,19 @@ func dispatch(subcommand, dsn string, args []string) int {
 // Placeholder handlers - will be implemented in Tasks 22-25
 
 func handleDatabases(dsn string, args []string) int {
-	// TODO: Implement in Task 22
-	envelope := output.NewErrorEnvelope(
-		output.ErrorCodeInternalError,
-		"databases subcommand not yet implemented",
-		nil,
-	)
-	output.WriteError(envelope)
-	return output.ErrorCodeInternalError.ExitCode()
+	return command.HandleDatabases(dsn, args)
 }
 
 func handleTables(dsn string, args []string) int {
-	// TODO: Implement in Task 23
-	envelope := output.NewErrorEnvelope(
-		output.ErrorCodeInternalError,
-		"tables subcommand not yet implemented",
-		nil,
-	)
-	output.WriteError(envelope)
-	return output.ErrorCodeInternalError.ExitCode()
+	return command.HandleTables(dsn, args)
 }
 
 func handleDescribe(dsn string, args []string) int {
-	// TODO: Implement in Task 24
-	envelope := output.NewErrorEnvelope(
-		output.ErrorCodeInternalError,
-		"describe subcommand not yet implemented",
-		nil,
-	)
-	output.WriteError(envelope)
-	return output.ErrorCodeInternalError.ExitCode()
+	return command.HandleDescribe(dsn, args)
 }
 
 func handleQuery(dsn string, args []string) int {
-	// TODO: Implement in Task 25
-	envelope := output.NewErrorEnvelope(
-		output.ErrorCodeInternalError,
-		"query subcommand not yet implemented",
-		nil,
-	)
-	output.WriteError(envelope)
-	return output.ErrorCodeInternalError.ExitCode()
+	return command.HandleQuery(dsn, args)
 }
 
 // printHelp displays usage information to stdout.
