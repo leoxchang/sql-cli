@@ -67,6 +67,10 @@ func HandleQuery(dsn string, args []string) int {
 		return output.ErrorCodeSafetyBlocked.ExitCode()
 	}
 
+	// Apply LIMIT guard: inject default LIMIT if SELECT has none
+	maxRows := getMaxRowsFromEnv()
+	sql = safety.AddLimitIfNeeded(sql, maxRows)
+
 	// Create context with 30-second timeout for query execution
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -216,4 +220,26 @@ func readStdinWithTimeout(timeout time.Duration) (string, error) {
 		// Timeout occurred
 		return "", fmt.Errorf("stdin read timeout after %v", timeout)
 	}
+}
+
+// getMaxRowsFromEnv reads SQL_CLI_MAX_ROWS environment variable and returns the value.
+// Returns default 1000 if not set or invalid.
+func getMaxRowsFromEnv() int {
+	const defaultMaxRows = 1000
+	env := os.Getenv("SQL_CLI_MAX_ROWS")
+	if env == "" {
+		return defaultMaxRows
+	}
+	// Parse the value; if invalid, use default
+	n := 0
+	for _, c := range env {
+		if c < '0' || c > '9' {
+			return defaultMaxRows
+		}
+		n = n*10 + int(c-'0')
+	}
+	if n <= 0 {
+		return defaultMaxRows
+	}
+	return n
 }
