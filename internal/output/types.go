@@ -71,28 +71,31 @@ type Column struct {
 
 // ErrorDetail contains detailed information about an error.
 type ErrorDetail struct {
-	Code    ErrorCode       `json:"code"`
-	Message string          `json:"message"`
-	Details map[string]any  `json:"details,omitempty"` // Optional additional context
+	Code    ErrorCode      `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details,omitempty"` // Optional additional context
 }
 
 // Envelope represents the standard output format for all operations.
 // It can represent either a success or failure response.
 //
 // Success envelope:
-//   {"ok": true, "columns": [...], "rows": [...], "row_count": N, "elapsed_ms": N}
+//
+//	{"ok": true, "columns": [...], "rows": [...], "row_count": N, "elapsed_ms": N, "table_comment": "..."}
 //
 // Failure envelope:
-//   {"ok": false, "error": {"code": "...", "message": "...", "details": {...}}}
+//
+//	{"ok": false, "error": {"code": "...", "message": "...", "details": {...}}}
 type Envelope struct {
 	// Ok indicates whether the operation succeeded
 	Ok bool `json:"ok"`
 
 	// Success fields (only populated when Ok is true)
-	Columns  []Column `json:"columns,omitempty"`
-	Rows     []any    `json:"rows,omitempty"`
-	RowCount int      `json:"row_count,omitempty"`
-	Elapsed  int64    `json:"elapsed_ms,omitempty"`
+	Columns      []Column `json:"columns,omitempty"`
+	Rows         []any    `json:"rows,omitempty"`
+	RowCount     int      `json:"row_count,omitempty"`
+	Elapsed      int64    `json:"elapsed_ms,omitempty"`
+	TableComment string   `json:"table_comment,omitempty"` // For describe command: table comment
 
 	// Failure field (only populated when Ok is false)
 	Error *ErrorDetail `json:"error,omitempty"`
@@ -107,6 +110,12 @@ func NewSuccessEnvelope(columns []Column, rows []any, elapsedMs int64) *Envelope
 		RowCount: len(rows),
 		Elapsed:  elapsedMs,
 	}
+}
+
+// WithTableComment adds table comment to the envelope and returns it for chaining.
+func (e *Envelope) WithTableComment(comment string) *Envelope {
+	e.TableComment = comment
+	return e
 }
 
 // NewErrorEnvelope creates a failure envelope with error details.

@@ -12,10 +12,11 @@ import (
 	"github.com/qiezi999/sql-cli/internal/output"
 )
 
-// validIdentifier matches legal MySQL identifiers: alphanumeric and underscore only.
-// This whitelist prevents SQL injection by rejecting any characters that could
-// be used to escape the backtick delimiter in SQL construction.
-var validIdentifier = regexp.MustCompile("^[A-Za-z0-9_]+$")
+// validIdentifier matches legal MySQL identifiers: alphanumeric, underscore, and dash.
+// MySQL permits dashes inside backtick-quoted identifiers (e.g., `ry-vue`).
+// The whitelist still rejects backticks, NUL bytes, and other meta-characters that
+// could escape the backtick delimiter or introduce SQL syntax during construction.
+var validIdentifier = regexp.MustCompile("^[A-Za-z0-9_-]+$")
 
 // HandleTables executes the SHOW TABLES FROM <database> command.
 // It validates the database identifier, connects to the MySQL server,

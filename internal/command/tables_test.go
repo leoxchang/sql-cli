@@ -50,9 +50,9 @@ func TestHandleTables_MissingArgument(t *testing.T) {
 // TestHandleTables_InvalidIdentifier tests that invalid identifiers are rejected.
 func TestHandleTables_InvalidIdentifier(t *testing.T) {
 	testCases := []struct {
-		name       string
-		database   string
-		expectMsg  string
+		name      string
+		database  string
+		expectMsg string
 	}{
 		{
 			name:      "semicolon injection",
@@ -67,11 +67,6 @@ func TestHandleTables_InvalidIdentifier(t *testing.T) {
 		{
 			name:      "quote injection",
 			database:  "db' OR '1'='1",
-			expectMsg: "invalid database identifier",
-		},
-		{
-			name:      "dash in name",
-			database:  "my-database",
 			expectMsg: "invalid database identifier",
 		},
 		{
@@ -153,6 +148,8 @@ func TestHandleTables_ValidIdentifiers(t *testing.T) {
 	}{
 		{"simple", "mydb"},
 		{"with_underscore", "my_db"},
+		{"with_dash", "my-db"},
+		{"with_dash_complex", "ry-vue"},
 		{"with_numbers", "db123"},
 		{"uppercase", "MYDB"},
 		{"mixed_case", "MyDb_123"},
@@ -174,8 +171,8 @@ func TestHandleTables_ValidIdentifiers(t *testing.T) {
 // TestHandleTables_RegexBoundaryCases tests edge cases for identifier validation.
 func TestHandleTables_RegexBoundaryCases(t *testing.T) {
 	testCases := []struct {
-		name      string
-		database  string
+		name        string
+		database    string
 		shouldMinch bool
 	}{
 		// Valid cases
@@ -183,10 +180,10 @@ func TestHandleTables_RegexBoundaryCases(t *testing.T) {
 		{"single letter", "a", true},
 		{"single number", "1", true},
 		{"single underscore", "_", true},
+		{"single dash", "-", true},
 		{"max length typical", strings.Repeat("a", 64), true},
 
 		// Invalid cases - special chars
-		{"contains dash", "my-db", false},
 		{"contains dot", "my.db", false},
 		{"contains space", "my db", false},
 		{"contains at", "db@test", false},

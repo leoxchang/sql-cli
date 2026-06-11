@@ -529,3 +529,31 @@ func TestMySQLURLToDriverDSN_URLEncodedUsername(t *testing.T) {
 		t.Errorf("Expected result to contain tcp format, got: %q", result)
 	}
 }
+
+func TestExtractDatabaseFromURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		dsn      string
+		expected string
+	}{
+		{"with database", "mysql://user:pass@localhost:3306/mydb", "mydb"},
+		{"with database and query", "mysql://user:pass@localhost:3306/ry-vue?charset=utf8mb4", "ry-vue"},
+		{"no database", "mysql://user:pass@localhost:3306/", ""},
+		{"no database no slash", "mysql://user:pass@localhost:3306", ""},
+		{"empty path", "mysql://user@localhost:3306/", ""},
+		{"database with underscore", "mysql://user:pass@localhost:3306/my_db", "my_db"},
+		{"database with dash", "mysql://user:pass@localhost:3306/my-db", "my-db"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := ExtractDatabaseFromURL(tt.dsn)
+			if err != nil {
+				t.Errorf("Expected no error, got: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("Expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}

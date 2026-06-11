@@ -27,6 +27,21 @@ func WriteSuccess(w io.Writer, columns []Column, rows []any, rowCount int, elaps
 	return err
 }
 
+// WriteSuccessWithTableComment writes a success envelope with table comment.
+// Used by describe command to include table-level metadata.
+func WriteSuccessWithTableComment(w io.Writer, columns []Column, rows []any, rowCount int, elapsedMs int64, tableComment string) error {
+	envelope := NewSuccessEnvelope(columns, rows, elapsedMs)
+	envelope.TableComment = tableComment
+
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write(data)
+	return err
+}
+
 // WriteError writes a failure envelope to stdout.
 // This is a convenience function for CLI handlers that need to emit JSON errors.
 //

@@ -12,13 +12,13 @@ import (
 
 // Validation errors for MySQL URL DSNs
 var (
-	ErrInvalidURLFormat     = errors.New("invalid URL format")
-	ErrInvalidScheme        = errors.New("scheme must be 'mysql'")
-	ErrEmptyHost            = errors.New("host cannot be empty")
-	ErrMissingPort          = errors.New("port is required (host:port format)")
-	ErrInvalidPortRange     = errors.New("port must be between 0 and 65535")
-	ErrDSNContainsNewline   = errors.New("DSN contains forbidden newline character")
-	ErrDSNContainsCarriage  = errors.New("DSN contains forbidden carriage return character")
+	ErrInvalidURLFormat    = errors.New("invalid URL format")
+	ErrInvalidScheme       = errors.New("scheme must be 'mysql'")
+	ErrEmptyHost           = errors.New("host cannot be empty")
+	ErrMissingPort         = errors.New("port is required (host:port format)")
+	ErrInvalidPortRange    = errors.New("port must be between 0 and 65535")
+	ErrDSNContainsNewline  = errors.New("DSN contains forbidden newline character")
+	ErrDSNContainsCarriage = errors.New("DSN contains forbidden carriage return character")
 )
 
 // ValidateMySQLURL validates a mysql:// URL DSN according to D4 specification.
@@ -153,4 +153,21 @@ func MySQLURLToDriverDSNOrError(dsn string) (string, *output.Envelope) {
 		)
 	}
 	return driverDSN, nil
+}
+
+// ExtractDatabaseFromURL extracts the database name from a mysql:// URL.
+// Returns empty string if no database is specified in the URL.
+// Returns error if the URL is invalid.
+func ExtractDatabaseFromURL(dsn string) (string, error) {
+	// Validate first
+	if err := ValidateMySQLURL(dsn); err != nil {
+		return "", err
+	}
+
+	// Parse (we know it's valid from validation above)
+	parsed, _ := url.Parse(dsn)
+
+	// Extract database from path, stripping leading slash
+	path := strings.TrimPrefix(parsed.Path, "/")
+	return path, nil
 }
