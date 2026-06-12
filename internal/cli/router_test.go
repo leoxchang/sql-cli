@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/qiezi999/sql-cli/internal/output"
@@ -216,6 +217,7 @@ func TestDispatch_ValidSubcommands(t *testing.T) {
 		{"databases", []string{}},
 		{"tables", []string{"mydb"}},
 		{"describe", []string{"mydb.users"}},
+		{"desc", []string{"mydb.users"}},
 		{"query", []string{"SELECT 1"}},
 	}
 
@@ -319,5 +321,32 @@ func TestOutputFormat_OnError(t *testing.T) {
 	// Verify newline is appended after JSON
 	if outputStr[len(outputStr)-1] != '\n' {
 		t.Error("output should end with newline for proper terminal display")
+	}
+}
+
+func TestRun_DSNAndProfileMutuallyExclusive(t *testing.T) {
+	// Set DSN via env to keep this test free of DSN-resolution side effects.
+	os.Setenv("SQL_CLI_DSN", "mysql://env:pass@localhost:3306/")
+	defer os.Unsetenv("SQL_CLI_DSN")
+
+	// Capture stdout to verify the error envelope is emitted.
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := Run([]string{"sql-cli", "--dsn", "mysql://flag:pass@localhost:3306/", "--profile", "dev", "databases"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2 (CONFIG_ERROR), got %d", exitCode)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "mutually exclusive") {
+		t.Errorf("expected error to mention mutual exclusion, got: %s", output)
 	}
 }

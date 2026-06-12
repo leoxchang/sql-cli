@@ -252,15 +252,18 @@ func TestWriteSuccessJSONFormat(t *testing.T) {
 		t.Fatalf("WriteSuccess returned error: %v", err)
 	}
 
-	// Verify JSON is properly formatted (no trailing newline, single line)
+	// Verify JSON is properly formatted: trailing newline ensures terminal/pipe
+	// consumers see a complete line. JSON parser ignores trailing whitespace.
 	output := buf.String()
 	if len(output) == 0 {
 		t.Fatal("Expected non-empty output")
 	}
-
-	// Verify it's valid JSON
+	if output[len(output)-1] != '\n' {
+		t.Errorf("Expected trailing newline, got %q", output[len(output)-1:])
+	}
+	// JSON portion (without the trailing newline) must parse.
 	var result Envelope
-	if err := json.Unmarshal([]byte(output), &result); err != nil {
+	if err := json.Unmarshal([]byte(output[:len(output)-1]), &result); err != nil {
 		t.Fatalf("Output is not valid JSON: %v", err)
 	}
 

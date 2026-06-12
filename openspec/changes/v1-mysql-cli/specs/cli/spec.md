@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Subcommand dispatch
-The CLI MUST dispatch on the first positional argument to one of `databases`, `tables`, `describe`, or `query`. An unknown subcommand MUST exit with code 2 and emit a `CONFIG_ERROR` envelope explaining the unknown subcommand name.
+The CLI MUST dispatch on the first positional argument to one of `databases`, `tables`, `describe` (alias: `desc`), or `query`. An unknown subcommand MUST exit with code 2 and emit a `CONFIG_ERROR` envelope explaining the unknown subcommand name.
 
 #### Scenario: Known subcommand runs
 - **WHEN** the user invokes `sql-cli databases`
 - **THEN** the `databases` handler runs and emits a success envelope
+
+#### Scenario: describe alias runs
+- **WHEN** the user invokes `sql-cli desc mydb.users`
+- **THEN** the same handler as `sql-cli describe mydb.users` runs and emits the same success envelope
 
 #### Scenario: Unknown subcommand
 - **WHEN** the user invokes `sql-cli frobnicate`

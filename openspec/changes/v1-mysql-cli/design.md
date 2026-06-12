@@ -86,14 +86,24 @@ Nine codes: `CONFIG_ERROR`, `CONNECTION_ERROR`, `AUTH_ERROR`, `PERMISSION_DENIED
 
 ### D5: Configuration precedence and absence behaviour
 
-**Decision:** Resolution order is `--dsn` flag → `SQL_CLI_DSN` env var → absent (emit `CONFIG_ERROR` and exit 2). No fallback to `~/.my.cnf`, no auto-discovery.
+**Decision:** Resolution order is `--dsn` flag → `SQL_CLI_DSN` env var → profile from config file (selected by `--profile <name>`) → absent (emit `CONFIG_ERROR` and exit 2). No fallback to `~/.my.cnf`.
 
-**Why:** Agent context: the flag is set when the user passes it explicitly, the env var is set when the shell exports it. Anything else (dotfiles, keyring) is implicit and surprises agents. Hard fail on absence is loud and clear.
+Config file lookup runs only when both `--dsn` and `SQL_CLI_DSN` are absent and `--profile` is non-empty. The merged profile map is built from two YAML files in this order (later wins by name):
+
+1. **Global config** — first existing path among `$SQL_CLI_CONFIG_DIR/config.yaml`, `$XDG_CONFIG_HOME/sql-cli/config.yaml`, `~/.config/sql-cli/config.yaml`.
+2. **Local config** — `.sql-cli.yaml` found by walking upward from the current working directory to the filesystem root.
+
+The on-disk schema is a single top-level `dsns:` map of `name: mysql://url` pairs. Each value is validated as a `mysql://` URL at load time; a malformed DSN in the config emits `CONFIG_ERROR` with the file path and the offending profile name attached. `--dsn` and `--profile` are mutually exclusive; supplying both emits `CONFIG_ERROR`.
+
+**Why:** A read-only MySQL CLI for agents needs a way to keep DSNs out of shell history and `ps` output. The flag and env paths are already that — the config file lets the same agent binary switch between dev/staging/prod without re-quoting credentials in each command. We rejected the more ambitious "multi-connection management" feature (connection pools, named sessions) because the tool is one-shot and read-only: there is no benefit to keeping a connection warm across invocations. We do not read `~/.my.cnf` because that file's `[client]` group has a different shape (key-value pairs, not `mysql://` URLs) and the user's agent would have to learn yet another format. YAML is the format humans edit; we accept the small dependency for that ergonomics.
 
 **Alternatives considered:**
 
-- *Look in `~/.my.cnf` as fallback* — useful for humans, invisible to agents. Rejected.
-- *Prompt for password if missing* — interactive prompt breaks non-interactive agents. Rejected.
+- *Keep flag/env only* — pushes users toward shell-aliased DSNs in `~/.bashrc` or env files, both of which leak into `ps` and process listings. Rejected.
+- *JSON config* — fine for machines, less friendly for humans editing connection lists. Rejected.
+- *Look in `~/.my.cnf` as a fourth tier* — different format, surprising cross-tool behaviour. Rejected.
+- *Profile in env (`$SQL_CLI_PROFILE`)* — duplicates `--profile` without buying anything; env var surface is already used for the DSN itself. Rejected.
+- *Mutually exclusive `--dsn` and `--profile`* (chosen) — silent precedence is the kind of "surprising the agent" behaviour the spec rejects at every other layer.
 
 ### D6: `database/sql` directly, no ORM, no `sqlx`
 

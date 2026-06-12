@@ -10,7 +10,8 @@ import (
 	"github.com/qiezi999/sql-cli/internal/output"
 )
 
-// TestHandleTables_MissingArgument tests that missing database argument returns CONFIG_ERROR.
+// TestHandleTables_MissingArgument tests that missing database argument AND missing
+// DSN database path returns CONFIG_ERROR.
 func TestHandleTables_MissingArgument(t *testing.T) {
 	// Capture stdout
 	oldStdout := os.Stdout
@@ -44,6 +45,9 @@ func TestHandleTables_MissingArgument(t *testing.T) {
 	}
 	if !strings.Contains(envelope.Error.Message, "database name required") {
 		t.Errorf("expected message to contain 'database name required', got %s", envelope.Error.Message)
+	}
+	if !strings.Contains(envelope.Error.Message, "DSN URL") {
+		t.Errorf("expected message to mention DSN URL fallback, got %s", envelope.Error.Message)
 	}
 }
 
@@ -222,5 +226,73 @@ func TestHandleTables_RegexBoundaryCases(t *testing.T) {
 				t.Errorf("identifier '%s': expected match=%v, got match=%v", tc.database, tc.shouldMinch, matched)
 			}
 		})
+	}
+}
+
+// TestHandleTables_DefaultsToDSNDatabase verifies that when no positional
+// argument is given, the database segment from the DSN URL is used instead of
+// returning CONFIG_ERROR. With a non-routable host, the handler should now
+// proceed past config validation and fail with a connection error.
+func TestHandleTables_DefaultsToDSNDatabase(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	// DSN contains a database; args is empty. With localhost:1 (unreachable but
+	// routable) we expect a connection error, NOT a config error.
+	exitCode := HandleTables("mysql://user:pass@127.0.0.1:1/mydb", []string{})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+
+	if exitCode == 2 {
+		t.Errorf("expected non-CONFIG_ERROR exit (DSN should supply database), got exit %d, error: %s", exitCode, envelope.Error)
+	}
+	if envelope.Ok {
+		t.Error("expected error envelope (unreachable host should fail), got success")
+	}
+	if envelope.Error != nil && envelope.Error.Code == output.ErrorCodeConfigError {
+		t.Errorf("did not expect CONFIG_ERROR when DSN provides database, got: %s", envelope.Error.Message)
+	}
+}
+
+// TestHandleTables_DSNDatabaseInvalidIdentifier verifies that even when the
+// DSN provides a database name, it must pass the identifier whitelist. This
+// guards against malicious or malformed DSN URLs smuggling bad identifiers.
+func TestHandleTables_DSNDatabaseInvalidIdentifier(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	// DSN with a database segment containing a dash is still allowed by
+	// validIdentifier (whitelist includes A-Za-z0-9_-), so use a clearly illegal
+	// character: semicolon. validator accepts the URL because /path is just a
+	// string; the handler-level whitelist is what catches this.
+	exitCode := HandleTables("mysql://user:pass@127.0.0.1:3306/db;bad", []string{})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2 (CONFIG_ERROR for invalid identifier), got %d", exitCode)
+	}
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if envelope.Error.Code != output.ErrorCodeConfigError {
+		t.Errorf("expected CONFIG_ERROR, got %s", envelope.Error.Code)
+	}
+	if !strings.Contains(envelope.Error.Message, "invalid database identifier") {
+		t.Errorf("expected 'invalid database identifier' message, got: %s", envelope.Error.Message)
 	}
 }

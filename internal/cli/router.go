@@ -28,6 +28,7 @@ func Run(args []string) int {
 	fs.SetOutput(os.Stderr)
 
 	dsn := fs.String("dsn", "", "Database connection string (mysql://user:pass@host:port/db)")
+	profile := fs.String("profile", "", "Named DSN profile from config file (mutually exclusive with --dsn)")
 	version := fs.Bool("version", false, "Show version information")
 
 	// Custom usage function to show help
@@ -69,8 +70,20 @@ func Run(args []string) int {
 		return 0
 	}
 
-	// Resolve DSN from flag or environment
-	resolvedDSN, err := config.ResolveDSN(*dsn)
+	// Reject --dsn + --profile together. --profile only makes sense as a
+	// fall-back when the user has not supplied an explicit DSN.
+	if *dsn != "" && *profile != "" {
+		envelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			"--dsn and --profile are mutually exclusive: --profile selects a DSN from the config file, --dsn provides the DSN directly",
+			nil,
+		)
+		output.WriteError(envelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+
+	// Resolve DSN from flag, env, or profile (in that order).
+	resolvedDSN, err := config.ResolveDSN(*dsn, *profile)
 	if err != nil {
 		// DSN resolution failed - emit error and exit
 		envelope := output.NewErrorEnvelope(
@@ -98,7 +111,7 @@ func dispatch(subcommand, dsn string, args []string) int {
 		return handleDatabases(dsn, args)
 	case "tables":
 		return handleTables(dsn, args)
-	case "describe":
+	case "describe", "desc":
 		return handleDescribe(dsn, args)
 	case "query":
 		return handleQuery(dsn, args)
@@ -149,11 +162,15 @@ Global Flags:
         Database connection string (mysql://user:pass@host:port/db)
         Can also be set via SQL_CLI_DSN environment variable
 
+  --profile string
+        Named DSN profile from config file. See "Configuration File" in README.
+        Mutually exclusive with --dsn.
+
 Subcommands:
   databases              List all databases
-  tables <database>      List tables in database
+  tables [database]      List tables in database (defaults to DSN URL path)
   describe <database.table>
-                        Show table structure
+                        Show table structure (alias: desc)
   query <sql>           Execute SQL query
 
 Examples:

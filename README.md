@@ -39,23 +39,36 @@ Output:
 
 ```bash
 sql-cli --dsn mysql://user:pass@host:3306/mydb tables mydb
+# database argument is optional when DSN URL already names the database:
+sql-cli --dsn mysql://user:pass@host:3306/mydb tables
 ```
 
 Output:
 ```json
 {
   "ok": true,
-  "columns": [{"name": "Tables_in_mydb", "type": "VARCHAR"}],
-  "rows": [["users"], ["orders"], ["products"]],
+  "columns": [
+    {"name": "Tables_in_mydb", "type": "VARCHAR"},
+    {"name": "Table_comment", "type": "VARCHAR"}
+  ],
+  "rows": [
+    ["orders", ""],
+    ["products", "商品表"],
+    ["users", "用户表"]
+  ],
   "row_count": 3,
   "elapsed_ms": 15
 }
 ```
 
+The `Table_comment` column mirrors MySQL's `TABLE_COMMENT` (set via `COMMENT='…'` in `CREATE TABLE`). Tables without a `COMMENT` clause have an empty string in this column.
+
 ### describe - Show table structure
 
 ```bash
 sql-cli --dsn mysql://user:pass@host:3306/mydb describe mydb.users
+# or use the short alias:
+sql-cli --dsn mysql://user:pass@host:3306/mydb desc mydb.users
 ```
 
 Output:
@@ -169,7 +182,38 @@ sql-cli tables mydb
 sql-cli query "SELECT * FROM users LIMIT 10"
 ```
 
-**Precedence:** `--dsn` flag > `SQL_CLI_DSN` environment variable > error
+**Precedence:** `--dsn` flag > `SQL_CLI_DSN` environment variable > `--profile` from config file > error
+
+## Configuration File
+
+For agents that switch between dev / staging / prod connections, put the DSNs in a YAML file and select one with `--profile <name>`. The file shape is a single `dsns:` map:
+
+```yaml
+# ~/.config/sql-cli/config.yaml (global)
+dsns:
+  dev:     mysql://root:pass@127.0.0.1:3306/devdb
+  staging: mysql://readonly:pw@db.staging.example.com:3306/?parseTime=true
+  prod-ro: mysql://readonly:pw@db.prod.example.com:3306/proddb
+```
+
+```bash
+sql-cli --profile staging databases
+sql-cli --profile dev tables
+```
+
+**Lookup order (later overrides earlier by name, not whole-file):**
+
+1. `$SQL_CLI_CONFIG_DIR/config.yaml` (if set)
+2. `$XDG_CONFIG_HOME/sql-cli/config.yaml` (if set)
+3. `~/.config/sql-cli/config.yaml` (XDG default)
+4. `.sql-cli.yaml` in the current working directory, walking upward to the filesystem root
+
+A project-local `.sql-cli.yaml` typically contains only the profile names specific to that repo (e.g. `local`, `ci`), so a developer's personal global profiles are not duplicated per project.
+
+**`--dsn` and `--profile` are mutually exclusive.** If both are passed, the binary emits `CONFIG_ERROR` (exit 2). This is intentional: silent precedence between an explicit DSN and a named profile is the kind of "surprising the agent" behaviour this tool rejects.
+
+**Risks:** the file is read in plaintext; anyone with read access to the file can see the password. The same risk exists for `--dsn` and `SQL_CLI_DSN` (visible in `ps` and process listings), so the config file is not strictly worse — but it does centralise the secrets in a single location worth filesystem-permissioning (e.g. `chmod 600 ~/.config/sql-cli/config.yaml`).
+
 
 ## Security Recommendations
 

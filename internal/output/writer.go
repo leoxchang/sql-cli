@@ -8,7 +8,9 @@ import (
 
 // WriteSuccess writes a success envelope to the provided writer.
 // It creates a success envelope using the provided columns, rows, row count, and elapsed time,
-// marshals it to JSON, and writes it to w.
+// marshals it to JSON, and writes it to w. A trailing newline is appended so the output
+// looks correct in a terminal and matches WriteError's behaviour; the JSON parser
+// downstream ignores trailing whitespace.
 //
 // Per D11: elapsedMs is wall-clock milliseconds from handler entry to last row read
 // (includes connection setup).
@@ -23,12 +25,18 @@ func WriteSuccess(w io.Writer, columns []Column, rows []any, rowCount int, elaps
 		return err
 	}
 
+	// Append newline so the JSON envelope is properly terminated in a terminal
+	// (prevents the shell from showing a "missing trailing newline" indicator
+	// like zsh's `%`) and stays consistent with WriteError.
+	data = append(data, '\n')
+
 	_, err = w.Write(data)
 	return err
 }
 
 // WriteSuccessWithTableComment writes a success envelope with table comment.
-// Used by describe command to include table-level metadata.
+// Used by describe command to include table-level metadata. A trailing newline
+// is appended for the same reason as WriteSuccess.
 func WriteSuccessWithTableComment(w io.Writer, columns []Column, rows []any, rowCount int, elapsedMs int64, tableComment string) error {
 	envelope := NewSuccessEnvelope(columns, rows, elapsedMs)
 	envelope.TableComment = tableComment
@@ -37,6 +45,8 @@ func WriteSuccessWithTableComment(w io.Writer, columns []Column, rows []any, row
 	if err != nil {
 		return err
 	}
+
+	data = append(data, '\n')
 
 	_, err = w.Write(data)
 	return err

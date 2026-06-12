@@ -94,6 +94,16 @@ func TestEndToEndCLIInvocation(t *testing.T) {
 			t.Errorf("Elapsed time too high: %d ms (> 10s)", envelope.Elapsed)
 		}
 
+		// Success envelope MUST be terminated by a trailing newline so terminal
+		// consumers (zsh, less) see a complete line. Matches WriteError's behaviour.
+		if len(stdout) == 0 || stdout[len(stdout)-1] != '\n' {
+			start := len(stdout) - 5
+			if start < 0 {
+				start = 0
+			}
+			t.Errorf("Expected success envelope to end with newline, got tail: %q", stdout[start:])
+		}
+
 		// Verify stderr is diagnostics/logs only (not JSON)
 		if len(stderr) > 0 {
 			// Stderr should not parse as JSON envelope

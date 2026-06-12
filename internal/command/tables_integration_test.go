@@ -82,11 +82,16 @@ func TestTablesSubcommand_Integration(t *testing.T) {
 			t.Errorf("Expected ok=true, got ok=false with error: %+v", envelope.Error)
 		}
 
-		// Verify columns structure
-		if len(envelope.Columns) != 1 {
-			t.Errorf("Expected 1 column, got %d columns", len(envelope.Columns))
-		} else if envelope.Columns[0].Name != fmt.Sprintf("Tables_in_testdb") {
-			t.Errorf("Expected column name 'Tables_in_testdb', got '%s'", envelope.Columns[0].Name)
+		// Verify columns structure: now two columns — table name and TABLE_COMMENT.
+		if len(envelope.Columns) != 2 {
+			t.Errorf("Expected 2 columns (table name + comment), got %d columns", len(envelope.Columns))
+		} else {
+			if envelope.Columns[0].Name != fmt.Sprintf("Tables_in_testdb") {
+				t.Errorf("Expected column[0] name 'Tables_in_testdb', got '%s'", envelope.Columns[0].Name)
+			}
+			if envelope.Columns[1].Name != "Table_comment" {
+				t.Errorf("Expected column[1] name 'Table_comment', got '%s'", envelope.Columns[1].Name)
+			}
 		}
 
 		// Verify at least 2 seeded tables exist
@@ -94,17 +99,18 @@ func TestTablesSubcommand_Integration(t *testing.T) {
 			t.Errorf("Expected at least 2 tables, got %d", envelope.RowCount)
 		}
 
-		// Verify seeded tables are in the list
+		// Verify seeded tables are in the list, and the users table carries its 中文 comment.
 		foundUsers := false
 		foundProducts := false
+		usersComment := ""
 		for _, row := range envelope.Rows {
 			rowArray, ok := row.([]any)
 			if !ok {
 				t.Errorf("Expected row to be []any, got %T", row)
 				continue
 			}
-			if len(rowArray) != 1 {
-				t.Errorf("Expected row to have 1 element, got %d", len(rowArray))
+			if len(rowArray) != 2 {
+				t.Errorf("Expected row to have 2 elements (name + comment), got %d", len(rowArray))
 				continue
 			}
 			tableName, ok := rowArray[0].(string)
@@ -112,8 +118,11 @@ func TestTablesSubcommand_Integration(t *testing.T) {
 				t.Errorf("Expected table name to be string, got %T", rowArray[0])
 				continue
 			}
+			// comment is a string column; may be empty for tables without COMMENT clause.
+			comment, _ := rowArray[1].(string)
 			if tableName == "users" {
 				foundUsers = true
+				usersComment = comment
 			}
 			if tableName == "products" {
 				foundProducts = true
@@ -123,6 +132,9 @@ func TestTablesSubcommand_Integration(t *testing.T) {
 		if !foundUsers {
 			t.Errorf("Expected to find 'users' table in list")
 			t.Logf("Available tables: %v", envelope.Rows)
+		}
+		if foundUsers && usersComment != "用户表" {
+			t.Errorf("Expected users table COMMENT='用户表', got %q", usersComment)
 		}
 		if !foundProducts {
 			t.Errorf("Expected to find 'products' table in list")
@@ -135,9 +147,12 @@ func TestTablesSubcommand_Integration(t *testing.T) {
 		}
 	})
 
-	// Test Scenario 2: Missing argument → CONFIG_ERROR (exit 2)
+	// Test Scenario 2: Missing argument AND DSN without database path → CONFIG_ERROR (exit 2)
 	t.Run("MissingArgument_CONFIG_ERROR", func(t *testing.T) {
-		cmd := exec.Command(binaryPath, "--dsn", dsn, "tables")
+		// Strip the trailing /<db> from the DSN so the handler cannot fall back
+		// to the URL path. New behaviour: positional arg OR DSN path is required.
+		noDBDSN := strings.TrimSuffix(dsn, "/"+extractDBName(dsn))
+		cmd := exec.Command(binaryPath, "--dsn", noDBDSN, "tables")
 		cmd.Dir = "/Users/qiezi999/Documents/work/sql-cli"
 
 		stdout, _, exitCode := runCommand(cmd)
@@ -168,6 +183,30 @@ func TestTablesSubcommand_Integration(t *testing.T) {
 		}
 		if !containsString(envelope.Error.Message, "database name required") {
 			t.Errorf("Expected message to contain 'database name required', got '%s'", envelope.Error.Message)
+		}
+		if !containsString(envelope.Error.Message, "DSN URL") {
+			t.Errorf("Expected message to mention DSN URL fallback, got '%s'", envelope.Error.Message)
+		}
+	})
+
+	// Test Scenario 2b: Missing argument BUT DSN contains database path → SUCCESS (fallback)
+	t.Run("MissingArgument_FallsBackToDSN", func(t *testing.T) {
+		cmd := exec.Command(binaryPath, "--dsn", dsn, "tables")
+		cmd.Dir = "/Users/qiezi999/Documents/work/sql-cli"
+
+		stdout, _, exitCode := runCommand(cmd)
+
+		// Exit code 0 — handler should not require positional arg when DSN provides one.
+		if exitCode != 0 {
+			t.Errorf("Expected exit code 0 (DSN database fallback), got %d", exitCode)
+		}
+
+		var envelope output.Envelope
+		if err := json.Unmarshal(stdout, &envelope); err != nil {
+			t.Fatalf("Failed to parse stdout as JSON envelope: %v\nOutput: %s", err, stdout)
+		}
+		if !envelope.Ok {
+			t.Errorf("Expected success envelope via DSN fallback, got error: %+v", envelope.Error)
 		}
 	})
 
@@ -334,14 +373,26 @@ func seedTestTables(t *testing.T, mysqlURL string) {
 		t.Fatalf("Failed to ping database: %v", err)
 	}
 
-	// Create users table
+	// Drop tables first so a re-run picks up schema changes (notably users.COMMENT
+	// added in the new INFORMATION_SCHEMA-based output). IF EXISTS keeps the
+	// first run green.
+	if _, err := db.Exec("DROP TABLE IF EXISTS users"); err != nil {
+		t.Fatalf("Failed to drop users table: %v", err)
+	}
+	if _, err := db.Exec("DROP TABLE IF EXISTS products"); err != nil {
+		t.Fatalf("Failed to drop products table: %v", err)
+	}
+
+	// Create users table with a TABLE_COMMENT so the new tables output column
+	// has something to display. products is left without a comment to exercise
+	// the "table has no COMMENT" path (column populated with "").
 	createUsersTable := `
-		CREATE TABLE IF NOT EXISTS users (
+		CREATE TABLE users (
 			id INT PRIMARY KEY AUTO_INCREMENT,
 			name VARCHAR(255) NOT NULL,
 			email VARCHAR(255) UNIQUE NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)
+		) COMMENT='用户表'
 	`
 	if _, err := db.Exec(createUsersTable); err != nil {
 		t.Fatalf("Failed to create users table: %v", err)
@@ -349,7 +400,7 @@ func seedTestTables(t *testing.T, mysqlURL string) {
 
 	// Create products table
 	createProductsTable := `
-		CREATE TABLE IF NOT EXISTS products (
+		CREATE TABLE products (
 			id INT PRIMARY KEY AUTO_INCREMENT,
 			name VARCHAR(255) NOT NULL,
 			price DECIMAL(10, 2) NOT NULL,
@@ -421,6 +472,25 @@ func runCommand(cmd *exec.Cmd) ([]byte, []byte, int) {
 // containsString checks if a string contains a substring (case-sensitive)
 func containsString(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+// extractDBName extracts the trailing database segment from a mysql:// DSN.
+// Input:  mysql://user:pass@host:port/testdb
+// Output: testdb
+//
+// Returns empty string if there is no database segment.
+func extractDBName(mysqlURL string) string {
+	// Find the last '/' before any query string.
+	q := strings.Index(mysqlURL, "?")
+	path := mysqlURL
+	if q >= 0 {
+		path = mysqlURL[:q]
+	}
+	i := strings.LastIndex(path, "/")
+	if i < 0 || i == len(path)-1 {
+		return ""
+	}
+	return path[i+1:]
 }
 
 // Note: readAll function is defined in databases_integration_test.go (same package)

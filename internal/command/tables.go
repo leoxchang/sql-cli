@@ -34,18 +34,37 @@ func HandleTables(dsn string, args []string) int {
 	// Track elapsed time from handler entry
 	startTime := time.Now()
 
-	// Validate database argument
-	if len(args) < 1 {
-		errEnvelope := output.NewErrorEnvelope(
-			output.ErrorCodeConfigError,
-			"database name required: sql-cli --dsn <dsn> tables <database>",
-			nil,
-		)
-		_ = output.WriteError(errEnvelope)
-		return output.ErrorCodeConfigError.ExitCode()
+	// Resolve database identifier: positional argument, or fall back to DSN URL path.
+	// The DSN path is preferred when the user is already in the database they want
+	// to inspect — typing `tables` again would be busywork.
+	var database string
+	if len(args) >= 1 {
+		database = args[0]
+	} else {
+		// DSN must be a syntactically valid mysql:// URL before we can extract the
+		// database segment. ValidateMySQLURL also rejects \n/\r, so it is safe to
+		// call before MySQLURLToDriverDSN.
+		if err := config.ValidateMySQLURL(dsn); err != nil {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeConfigError,
+				"database name required: provide as positional argument or in DSN URL (--dsn mysql://user:pass@host:port/<db>)",
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeConfigError.ExitCode()
+		}
+		dsnDB, err := config.ExtractDatabaseFromURL(dsn)
+		if err != nil || dsnDB == "" {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeConfigError,
+				"database name required: provide as positional argument or in DSN URL (--dsn mysql://user:pass@host:port/<db>)",
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeConfigError.ExitCode()
+		}
+		database = dsnDB
 	}
-
-	database := args[0]
 
 	// Validate identifier against whitelist
 	if !validIdentifier.MatchString(database) {
@@ -80,13 +99,15 @@ func HandleTables(dsn string, args []string) int {
 	}
 	defer db.Close()
 
-	// Build query with backtick escaping
-	// The whitelist validation ensures database contains only [A-Za-z0-9_],
-	// which cannot interfere with backtick delimiters or SQL syntax.
-	query := fmt.Sprintf("SHOW TABLES FROM `%s`", database)
+	// Build query against INFORMATION_SCHEMA so the response carries both the
+	// table name and the MySQL TABLE_COMMENT (set via `COMMENT='...'` in CREATE
+	// TABLE). The dbName placeholder is bound, not interpolated; the whitelist
+	// check above already excludes anything but [A-Za-z0-9_-], so the binding
+	// is belt-and-suspenders.
+	query := "SELECT TABLE_NAME, TABLE_COMMENT FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME"
 
 	// Execute query
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, database)
 	if err != nil {
 		// Classify the error and emit appropriate error envelope
 		errCode, message, details := mysqldrv.ClassifyError(err, query)
