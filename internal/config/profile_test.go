@@ -4,8 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const sampleConfig = `
@@ -195,5 +198,187 @@ func TestResolveProfile_EmptyMap(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "(none)") {
 		t.Errorf("expected '(none)' for empty available list, got: %v", err)
+	}
+}
+
+// ─── WriteProfileMap tests ────────────────────────────────────────────────
+
+func TestWriteProfileMap_NewFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission modes behave differently on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	pm := ProfileMap{"dev": "mysql://root:pass@127.0.0.1:3306/devdb"}
+	if err := WriteProfileMap(path, pm); err != nil {
+		t.Fatalf("WriteProfileMap: %v", err)
+	}
+
+	// Check file was created and has 0600 permissions
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("expected 0600 permissions, got %o", info.Mode().Perm())
+	}
+}
+
+func TestWriteProfileMap_ExistingFilePreservesPerm(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission modes behave differently on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Create existing file with 0644
+	if err := os.WriteFile(path, []byte("dsns:\n  x: y\n"), 0o644); err != nil {
+		t.Fatalf("write initial file: %v", err)
+	}
+
+	pm := ProfileMap{"dev": "mysql://root:pass@127.0.0.1:3306/devdb"}
+	if err := WriteProfileMap(path, pm); err != nil {
+		t.Fatalf("WriteProfileMap: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("expected 0644 permissions to be preserved, got %o", info.Mode().Perm())
+	}
+}
+
+func TestWriteProfileMap_PreservesMapOrder(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Insert keys in non-alphabetical order
+	pm := ProfileMap{
+		"zebra":   "mysql://z",
+		"alpha":   "mysql://a",
+		"middle":  "mysql://m",
+		"beta":    "mysql://b",
+		"qwerty":  "mysql://q",
+	}
+	if err := WriteProfileMap(path, pm); err != nil {
+		t.Fatalf("WriteProfileMap: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	content := string(data)
+
+	// Verify alphabetical order: alpha < beta < middle < qwerty < zebra
+	alphaIdx := strings.Index(content, "alpha:")
+	betaIdx := strings.Index(content, "beta:")
+	middleIdx := strings.Index(content, "middle:")
+	qwertyIdx := strings.Index(content, "qwerty:")
+	zebraIdx := strings.Index(content, "zebra:")
+
+	if alphaIdx == -1 || betaIdx == -1 || middleIdx == -1 || qwertyIdx == -1 || zebraIdx == -1 {
+		t.Fatalf("missing profile keys in output:\n%s", content)
+	}
+	if !(alphaIdx < betaIdx && betaIdx < middleIdx && middleIdx < qwertyIdx && qwertyIdx < zebraIdx) {
+		t.Errorf("keys are not in alphabetical order:\n%s", content)
+	}
+}
+
+func TestWriteProfileMap_EmptyMap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := WriteProfileMap(path, ProfileMap{}); err != nil {
+		t.Fatalf("WriteProfileMap: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	// Should produce valid YAML (empty dsns block)
+	var cfg ProfileConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("output is not valid YAML:\n%s", string(data))
+	}
+	if len(cfg.DSNs) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(cfg.DSNs))
+	}
+}
+
+func TestWriteProfileMap_NilMap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Write nil map — should normalize to empty
+	if err := WriteProfileMap(path, nil); err != nil {
+		t.Fatalf("WriteProfileMap(nil): %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	var cfg ProfileConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("output is not valid YAML:\n%s", string(data))
+	}
+	if len(cfg.DSNs) != 0 {
+		t.Errorf("expected empty map for nil input, got %d entries", len(cfg.DSNs))
+	}
+}
+
+func TestWriteProfileMap_DirNotExist(t *testing.T) {
+	dir := t.TempDir()
+	// Use a path where the last segment exists as a regular file — os.MkdirAll
+	// cannot create a directory at that path, so it will fail.
+	filePath := filepath.Join(dir, "afile")
+	if err := os.WriteFile(filePath, []byte("x"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	target := filepath.Join(filePath, "config.yaml")
+
+	err := WriteProfileMap(target, ProfileMap{"dev": "mysql://x"})
+	if err == nil {
+		t.Fatal("expected error when parent is a file (cannot create directory)")
+	}
+	if !strings.Contains(err.Error(), "create parent directory") && !strings.Contains(err.Error(), "afile") {
+		t.Errorf("error should mention the parent directory issue, got: %v", err)
+	}
+}
+
+func TestWriteProfileMap_Overwrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// First write
+	pm1 := ProfileMap{"first": "mysql://first"}
+	if err := WriteProfileMap(path, pm1); err != nil {
+		t.Fatalf("WriteProfileMap (first): %v", err)
+	}
+
+	// Overwrite with new content
+	pm2 := ProfileMap{"second": "mysql://second"}
+	if err := WriteProfileMap(path, pm2); err != nil {
+		t.Fatalf("WriteProfileMap (overwrite): %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	content := string(data)
+
+	if strings.Contains(content, "first") {
+		t.Errorf("overwritten file should not contain 'first' key:\n%s", content)
+	}
+	if !strings.Contains(content, "second") {
+		t.Errorf("overwritten file should contain 'second' key:\n%s", content)
 	}
 }
