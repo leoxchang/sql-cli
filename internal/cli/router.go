@@ -70,6 +70,11 @@ func Run(args []string) int {
 		return 0
 	}
 
+	// "config" subcommand does not need DSN — dispatch directly
+	if remaining[0] == "config" {
+		return dispatch("config", "", remaining[1:])
+	}
+
 	// Reject --dsn + --profile together. --profile only makes sense as a
 	// fall-back when the user has not supplied an explicit DSN.
 	if *dsn != "" && *profile != "" {
@@ -117,6 +122,8 @@ func dispatch(subcommand, dsn string, args []string) int {
 		return handleIndexes(dsn, args)
 	case "query":
 		return handleQuery(dsn, args)
+	case "config":
+		return handleConfig(args)
 	case "--help", "-h":
 		printHelp()
 		return 0
@@ -154,6 +161,10 @@ func handleIndexes(dsn string, args []string) int {
 	return command.HandleIndexes(dsn, args)
 }
 
+func handleConfig(args []string) int {
+	return command.HandleConfig(args)
+}
+
 // printHelp displays usage information to stdout.
 // Help goes to stdout for grep/piping compatibility.
 // stderr is reserved for debug/diagnostics only.
@@ -182,6 +193,9 @@ Subcommands:
                         Show index metadata (aliases: idx, keys)
   query <sql>           Execute SQL query (SELECT without LIMIT is capped
                         at 1000 rows; override with SQL_CLI_MAX_ROWS)
+  config add <name> <dsn>
+                        Save a named DSN profile to config file
+  config list           List saved DSN profiles (with masked passwords)
 
 Examples:
   sql-cli --dsn mysql://root:pass@localhost:3306/ databases
