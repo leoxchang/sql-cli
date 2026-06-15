@@ -1,10 +1,15 @@
 package command
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/qiezi999/sql-cli/internal/config"
+	"github.com/qiezi999/sql-cli/internal/mysqldrv"
+	"github.com/qiezi999/sql-cli/internal/output"
 )
 
 // probeSQL queries INFORMATION_SCHEMA.COLUMNS to detect which optional columns
@@ -99,4 +104,130 @@ func parseIndexesArgs(arg string, dsn string) (database string, table string, er
 	}
 
 	return database, table, nil
+}
+
+// HandleIndexes executes the indexes subcommand: queries INFORMATION_SCHEMA.STATISTICS
+// for the given <db>.<table> and writes a 14-column JSON envelope.
+func HandleIndexes(dsn string, args []string) int {
+	startTime := time.Now()
+
+	if len(args) < 1 {
+		envelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			"table identifier required: sql-cli --dsn <dsn> indexes <table> or indexes <database.table>",
+			nil,
+		)
+		_ = output.WriteError(envelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+
+	database, table, err := parseIndexesArgs(args[0], dsn)
+	if err != nil {
+		envelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			err.Error(),
+			nil,
+		)
+		_ = output.WriteError(envelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+
+	driverDSN, errEnvelope := config.MySQLURLToDriverDSNOrError(dsn)
+	if errEnvelope != nil {
+		_ = output.WriteError(errEnvelope)
+		return errEnvelope.Error.Code.ExitCode()
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	db, err := mysqldrv.Open(ctx, driverDSN)
+	if err != nil {
+		errCode, message, details := mysqldrv.ClassifyError(err, "")
+		envelope := output.NewErrorEnvelope(errCode, message, details)
+		_ = output.WriteError(envelope)
+		return errCode.ExitCode()
+	}
+	defer db.Close()
+
+	// Probe: detect IS_VISIBLE and EXPRESSION column existence
+	probeRows, err := db.QueryContext(ctx, probeSQL)
+	if err != nil {
+		errCode, message, details := mysqldrv.ClassifyError(err, probeSQL)
+		envelope := output.NewErrorEnvelope(errCode, message, details)
+		_ = output.WriteError(envelope)
+		return errCode.ExitCode()
+	}
+
+	hasIsVisible := false
+	hasExpression := false
+	for probeRows.Next() {
+		var colName string
+		if err := probeRows.Scan(&colName); err != nil {
+			probeRows.Close()
+			envelope := output.NewErrorEnvelope(
+				output.ErrorCodeInternalError,
+				fmt.Sprintf("failed to scan probe result: %v", err),
+				nil,
+			)
+			_ = output.WriteError(envelope)
+			return output.ErrorCodeInternalError.ExitCode()
+		}
+		switch colName {
+		case "is_visible":
+			hasIsVisible = true
+		case "expression":
+			hasExpression = true
+		}
+	}
+	probeRows.Close()
+	if err := probeRows.Err(); err != nil {
+		errCode, message, details := mysqldrv.ClassifyError(err, probeSQL)
+		envelope := output.NewErrorEnvelope(errCode, message, details)
+		_ = output.WriteError(envelope)
+		return errCode.ExitCode()
+	}
+
+	// Build main query based on probe results
+	mainSQL := buildIndexSQL(hasIsVisible, hasExpression)
+
+	rows, err := db.QueryContext(ctx, mainSQL, database, table)
+	if err != nil {
+		errCode, message, details := mysqldrv.ClassifyError(err, mainSQL)
+		envelope := output.NewErrorEnvelope(errCode, message, details)
+		_ = output.WriteError(envelope)
+		return errCode.ExitCode()
+	}
+	defer rows.Close()
+
+	columns, rowData, err := output.ConvertRows(rows)
+	if err != nil {
+		envelope := output.NewErrorEnvelope(
+			output.ErrorCodeQueryError,
+			fmt.Sprintf("failed to convert result rows: %v", err),
+			nil,
+		)
+		_ = output.WriteError(envelope)
+		return output.ErrorCodeQueryError.ExitCode()
+	}
+
+	rowsAsAny := make([]any, len(rowData))
+	for i, row := range rowData {
+		rowsAsAny[i] = row
+	}
+
+	elapsedMs := time.Since(startTime).Milliseconds()
+
+	err = output.WriteSuccess(os.Stdout, columns, rowsAsAny, len(rowData), elapsedMs)
+	if err != nil {
+		envelope := output.NewErrorEnvelope(
+			output.ErrorCodeInternalError,
+			fmt.Sprintf("failed to write output: %v", err),
+			nil,
+		)
+		_ = output.WriteError(envelope)
+		return output.ErrorCodeInternalError.ExitCode()
+	}
+
+	return 0
 }

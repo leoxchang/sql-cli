@@ -1,8 +1,13 @@
 package command
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/qiezi999/sql-cli/internal/output"
 )
 
 func TestProbeSQL(t *testing.T) {
@@ -138,6 +143,80 @@ func TestParseIndexesArgs_RejectedInputs(t *testing.T) {
 			_, _, err := parseIndexesArgs(tc.arg, "mysql://u:p@h:3306/mydb")
 			if err == nil {
 				t.Errorf("expected error for input %q, got nil", tc.arg)
+			}
+		})
+	}
+}
+
+func TestHandleIndexes_MissingArgument(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := HandleIndexes("mysql://user:pass@localhost:3306/mydb", []string{})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if envelope.Ok {
+		t.Error("expected error envelope")
+	}
+	if envelope.Error.Code != output.ErrorCodeConfigError {
+		t.Errorf("expected CONFIG_ERROR, got %s", envelope.Error.Code)
+	}
+}
+
+func TestHandleIndexes_EmptyStringArgument(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := HandleIndexes("mysql://user:pass@localhost:3306/mydb", []string{""})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if envelope.Ok {
+		t.Error("expected error envelope")
+	}
+}
+
+func TestHandleIndexes_InvalidIdentifier(t *testing.T) {
+	cases := []string{"a.b.c", ".", "a.", ".a", "a..b", "db.table; DROP"}
+	for _, arg := range cases {
+		t.Run(arg, func(t *testing.T) {
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			exitCode := HandleIndexes("mysql://user:pass@localhost:3306/mydb", []string{arg})
+
+			w.Close()
+			os.Stdout = oldStdout
+			_ = r
+
+			if exitCode != 2 {
+				t.Errorf("expected exit code 2 for %q, got %d", arg, exitCode)
 			}
 		})
 	}
