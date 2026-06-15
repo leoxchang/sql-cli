@@ -31,12 +31,14 @@
 
 ### D1（本次变更）：写文件 = 原子重写整个文件
 
-**决策：** 用 `yaml.Marshal(ProfileConfig{DSNs: merged})` 把整个 map 重写回文件。流程：
+**决策：** 用 `yaml.Marshal(ProfileConfig{DSNs: merged})` 把整个 map 重写回文件。**输出按 profile 名字母序**——`yaml.Marshal(map)` 的迭代顺序在 Go 里是随机的，必须显式排序（用 `sort.Strings(keys)` + 自定义 marshal，或 `yaml.Node` 保序）。
+
+流程：
 
 1. 读现有文件 → 解析为 `ProfileMap`（若不存在则空 map）。
 2. 在内存中 `merged[name] = newDSN`。
 3. 写 `os.CreateTemp(dir, ".sql-cli.yaml.*")` 到目标目录。
-4. `yaml.Marshal` 到 temp。
+4. `yaml.Marshal` 到 temp（按 key 字母序）。
 5. `temp.Chmod(0o600)`（**仅**当目标文件原本不存在）。
 6. `os.Rename(temp, target)`——POSIX 原子。
 7. 删除 temp（如 rename 失败）。

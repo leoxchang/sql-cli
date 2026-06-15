@@ -85,14 +85,18 @@
   - **`TestHandleConfigList_GlobalOnly`**：`--global` → 不含 local
   - **`TestHandleConfigList_LocalAndGlobalMutuallyExclusive`**：两个 flag 同给 → CONFIG_ERROR
   - **`TestHandleConfigList_PositionalArgsRejected`**：`config list extra` → CONFIG_ERROR
+  - **`TestHandleConfigList_LocalOverrideGlobal`**：local 含 `dev: mysql://local`，global 含 `dev: mysql://global` → `config list` 返回 1 条 `dev`，value 是 `mysql://local`，source 指向 local 文件
+  - **`TestHandleConfigList_OnlyLocal`**：只有 local 有 profile → `config list` 返回 1 条，source 指向 local 文件
+  - **`TestHandleConfigList_OnlyGlobal`**：只有 global 有 profile → `config list` 返回 1 条，source 指向 global 文件
+  - **`TestHandleConfigAdd_WriteFailureInternalError`**：mock 一个不可写目录（`t.TempDir()` 后再 `os.Chmod(tempDir, 0o444)` + Windows skip）→ `config add dev mysql://...` 返回 exit 99 `INTERNAL_ERROR`
 
 ## 5. 集成测试
 
 - [ ] 5.1 `internal/command/config_integration_test.go`（`//go:build integration`）：
   - 跑完整二进制（仿 `describe_integration_test.go` 模式：`exec.Command(binaryPath, ...)`）
-  - **`EndToEnd_AddLocal`**: chdir 到 `t.TempDir()`，跑 `sql-cli config add dev mysql://...` → 文件存在、可 `LoadProfileMap` 读回
+  - **`EndToEnd_AddLocal`**: chdir 到 `t.TempDir()`，跑 `sql-cli config add dev mysql://u:p@h:3306/db` → 文件存在、可 `LoadProfileMap` 读回（文件存完整 DSN）；**stdout JSON 的 `dsn` 字段是掩码后的** `mysql://u:****@h:3306/db`
   - **`EndToEnd_AddGlobal`**: 跑 `sql-cli --dsn X config add --global dev mysql://...` → `~/.sql-cli/config.yaml` 含该 profile
-  - **`EndToEnd_AddThenList`**: add local + add global → `sql-cli config list` 输出两个
+  - **`EndToEnd_AddThenList`**: add local + add global → `sql-cli config list` 输出两个，**按 name 字母序**；每条 `dsn` 是掩码后的形式（`mysql://u:****@...`）；`source` 各自指向文件
   - **`EndToEnd_AddOverwritesViaBinary`**: add 两次同名不同 dsn → 第二次 stdout JSON `action: "overwritten"`
   - **`EndToEnd_AddInvalidDSN`**: 错 DSN → exit 2
   - **`EndToEnd_AddInvalidProfileName`**: 错 name → exit 2

@@ -70,7 +70,7 @@
 
 #### Scenario: merged 视图
 - **WHEN** CWD `.sql-cli.yaml` 含 `{dev: "mysql://a"}` 且 `~/.sql-cli/config.yaml` 含 `{staging: "mysql://b"}`
-- **THEN** `sql-cli config list` 返回 2 条 profile，顺序不保证；`dev` 的 `source` 指向 CWD 文件，`staging` 的 `source` 指向 home 文件
+- **THEN** `sql-cli config list` 返回 2 条 profile，**按 name 字母序**；`dev` 的 `source` 指向 CWD 文件，`staging` 的 `source` 指向 home 文件
 
 #### Scenario: local override global
 - **WHEN** 两边都有同名 profile `dev`，但值不同
