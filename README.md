@@ -229,6 +229,78 @@ A project-local `.sql-cli.yaml` typically contains only the profile names specif
 
 **Risks:** the file is read in plaintext; anyone with read access to the file can see the password. The same risk exists for `--dsn` and `SQL_CLI_DSN` (visible in `ps` and process listings), so the config file is not strictly worse — but it does centralise the secrets in a single location worth filesystem-permissioning (e.g. `chmod 600 ~/.sql-cli/config.yaml`).
 
+### config add — Save a DSN profile
+
+```bash
+# Add to local config (./.sql-cli.yaml)
+sql-cli config add dev mysql://user:pass@localhost:3306/devdb
+
+# Add to global config (~/.sql-cli/config.yaml)
+sql-cli config add --global prod mysql://user:pass@prod:3306/proddb
+```
+
+Profile names must match `^[A-Za-z0-9_][A-Za-z0-9_.-]*$` — first char must be a letter, digit, or underscore; subsequent chars may also include `.` and `-`. Names starting with `-` or `.` are rejected.
+
+If a profile with the same name already exists, it is overwritten silently. If the value differs, a warning is printed to stderr:
+
+```
+replacing dev: mysql://user:old@localhost:3306/devdb → mysql://user:pass@localhost:3306/devdb
+```
+
+Successful output:
+```json
+{
+  "ok": true,
+  "profile": "dev",
+  "dsn": "mysql://user:****@localhost:3306/devdb",
+  "path": "/home/user/project/.sql-cli.yaml",
+  "action": "created",
+  "elapsed_ms": 3
+}
+```
+
+The `path` field shows the absolute file path. New config files are created with `0600` permissions (owner read/write only). Existing files preserve their permissions.
+
+### config list — List saved profiles
+
+```bash
+# List all profiles (local + global, local overrides global)
+sql-cli config list
+
+# List only local profiles
+sql-cli config list --local
+
+# List only global profiles
+sql-cli config list --global
+```
+
+Output:
+```json
+{
+  "ok": true,
+  "profiles": [
+    {"name": "dev", "dsn": "mysql://user:****@localhost:3306/devdb", "source": "/home/user/project/.sql-cli.yaml"},
+    {"name": "prod", "dsn": "mysql://user:****@prod:3306/proddb", "source": "/home/user/.sql-cli/config.yaml"}
+  ],
+  "count": 2,
+  "elapsed_ms": 2
+}
+```
+
+Profiles are listed in alphabetical order by name. DSNs are masked in output (password replaced with `****`). The `source` field shows which file each profile came from. Local profiles override global ones with the same name.
+
+### Config file locations
+
+- **Local**: `.sql-cli.yaml` in the current working directory
+- **Global**: `~/.sql-cli/config.yaml` (or `$SQL_CLI_CONFIG_DIR/config.yaml`, `$XDG_CONFIG_HOME/sql-cli/config.yaml` if set)
+
+### Implementation details
+
+- Config files are written atomically (temp file + rename) to prevent corruption
+- Parent directory (`~/.sql-cli/`) is created with `0700` permissions
+- Profile keys are sorted alphabetically for deterministic output
+- Comments in existing YAML files are not preserved (file is rewritten)
+
 
 ## Security Recommendations
 
@@ -346,7 +418,6 @@ These features are **not** implemented and will not be added in v1.0:
 - **Additional commands**: No `explain`, `analyze`, `show status`, `show processlist`
 - **Other databases**: MySQL only (no PostgreSQL, SQLite, MariaDB support)
 - **MCP server mode**: No Model Context Protocol integration
-- **Configuration files**: No `.sql-cli.yaml` or config file support
 - **Plugin system**: No driver plugins or extension mechanism
 
 If you need these features, consider using the official `mysql` CLI or a full MySQL client library.

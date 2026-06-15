@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -213,4 +214,93 @@ func fileExists(path string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+// WriteProfileMap atomically writes the profile map to path as YAML.
+//
+// It creates parent directories as needed, sorts keys alphabetically for
+// deterministic output, and uses an atomic write pattern (temp file + rename)
+// to avoid partial writes. Permissions: 0600 for new files, preserve existing
+// file's permissions for overwrites. Nil maps are normalized to empty.
+func WriteProfileMap(path string, pm ProfileMap) error {
+	// Normalize nil to empty map
+	if pm == nil {
+		pm = ProfileMap{}
+	}
+
+	// Ensure parent directory exists
+	parent := filepath.Dir(path)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return fmt.Errorf("create parent directory for %q: %w", path, err)
+	}
+
+	// Determine target permissions: preserve existing file's mode, else 0600
+	mode := os.FileMode(0o600)
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
+
+	// Atomic write: create temp file in same directory, rename on success
+	tmp, err := os.CreateTemp(parent, ".sql-cli.yaml.")
+	if err != nil {
+		return fmt.Errorf("create temp file in %q: %w", parent, err)
+	}
+	tmpPath := tmp.Name()
+
+	cleanup := func() {
+		os.Remove(tmpPath) // best-effort
+	}
+
+	if err := func() error {
+		defer tmp.Close()
+		// Build ordered YAML: dsns -> mapping of key: value
+		content := buildYAMLContent(pm)
+		if _, err := tmp.WriteString(content); err != nil {
+			return fmt.Errorf("write temp file: %w", err)
+		}
+		// Set permissions before rename so the final file has the right mode
+		if err := os.Chmod(tmpPath, mode); err != nil {
+			return fmt.Errorf("chmod temp file: %w", err)
+		}
+		return nil
+	}(); err != nil {
+		cleanup()
+		return err
+	}
+
+	if err := os.Rename(tmpPath, path); err != nil {
+		cleanup()
+		return fmt.Errorf("rename temp file to %q: %w", path, err)
+	}
+
+	return nil
+}
+
+// buildYAMLContent builds a YAML string with keys sorted alphabetically,
+// using yaml.Node to guarantee ordered mapping output.
+func buildYAMLContent(pm ProfileMap) string {
+	// Collect and sort keys
+	keys := make([]string, 0, len(pm))
+	for k := range pm {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Build yaml.Node mapping: dsns -> [key: value, ...]
+	dsnsContent := &yaml.Node{Kind: yaml.MappingNode}
+	for _, k := range keys {
+		dsnsContent.Content = append(dsnsContent.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: k},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: pm[k]},
+		)
+	}
+
+	doc := &yaml.Node{Kind: yaml.MappingNode}
+	doc.Content = append(doc.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: "dsns"},
+		dsnsContent,
+	)
+
+	data, _ := yaml.Marshal(doc)
+	return string(data)
 }
