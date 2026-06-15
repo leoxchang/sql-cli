@@ -76,6 +76,42 @@ func SetupMySQLContainer(t *testing.T) *MySQLTestContainer {
 	}
 }
 
+// SetupMySQL57ContainerWithDSN creates a MySQL 5.7 test container and returns both
+// the container and a mysql:// DSN. Used to test the compatibility probe path where
+// IS_VISIBLE and EXPRESSION columns are absent from INFORMATION_SCHEMA.STATISTICS.
+func SetupMySQL57ContainerWithDSN(ctx context.Context) (container *MySQLTestContainer, dsn string, teardown func(), err error) {
+	mysqlC, err := mysql.Run(ctx,
+		"mysql:5.7",
+		mysql.WithUsername("test"),
+		mysql.WithPassword("test"),
+		mysql.WithDatabase("testdb"),
+	)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("failed to create MySQL 5.7 container: %w", err)
+	}
+
+	connStr, err := mysqlC.ConnectionString(ctx)
+	if err != nil {
+		_ = mysqlC.Terminate(ctx)
+		return nil, "", nil, fmt.Errorf("failed to get connection string: %w", err)
+	}
+
+	dsn = "mysql://" + connStr
+
+	wrapped := &MySQLTestContainer{
+		MySQLContainer: mysqlC,
+		ctx:            ctx,
+	}
+
+	teardown = func() {
+		if err := mysqlC.Terminate(ctx); err != nil {
+			fmt.Printf("Warning: failed to terminate MySQL 5.7 container: %v\n", err)
+		}
+	}
+
+	return wrapped, dsn, teardown, nil
+}
+
 // SetupMySQLContainerWithDSN creates a MySQL 8 test container and returns both
 // the container and a mysql:// DSN format compatible with our config package.
 // This is useful when testing the full CLI stack with DSN resolution.
