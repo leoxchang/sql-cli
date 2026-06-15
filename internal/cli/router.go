@@ -169,7 +169,7 @@ Global Flags:
         Can also be set via SQL_CLI_DSN environment variable
 
   --profile string
-        Named DSN profile from YAML config (~/.config/sql-cli/config.yaml:
+        Named DSN profile from YAML config (~/.sql-cli/config.yaml:
         dsns: {name: mysql://...}). See "Configuration File" in README.
         Mutually exclusive with --dsn.
 

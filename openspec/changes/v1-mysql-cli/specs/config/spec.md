@@ -53,13 +53,13 @@ The configuration layer MUST accept only DSNs whose scheme is `mysql`. The DSN M
 ### Requirement: Config file layout and lookup
 The configuration layer MUST support loading DSN profiles from a YAML file. The file shape is a single top-level `dsns:` map whose values are `mysql://` URLs. The layer MUST look up two files in order, with later files overriding earlier ones by profile name (shallow merge, not whole-file replacement):
 
-1. **Global config** — the first existing file among `$SQL_CLI_CONFIG_DIR/config.yaml`, `$XDG_CONFIG_HOME/sql-cli/config.yaml`, `~/.config/sql-cli/config.yaml`.
+1. **Global config** — the first existing file among `$SQL_CLI_CONFIG_DIR/config.yaml`, `$XDG_CONFIG_HOME/sql-cli/config.yaml`, `~/.sql-cli/config.yaml`.
 2. **Local config** — `.sql-cli.yaml` found by walking upward from the current working directory to the filesystem root.
 
 A missing file at any of these locations MUST NOT be an error. A present file that fails to parse as YAML, or that contains a value failing `mysql://` validation, MUST emit `CONFIG_ERROR` with the file path attached.
 
 #### Scenario: Global config provides the profile
-- **WHEN** `~/.config/sql-cli/config.yaml` contains `dsns: { dev: "mysql://..." }` and no local file exists
+- **WHEN** `~/.sql-cli/config.yaml` contains `dsns: { dev: "mysql://..." }` and no local file exists
 - **THEN** `sql-cli --profile dev` resolves the DSN from the global file
 
 #### Scenario: Local config overrides a global profile

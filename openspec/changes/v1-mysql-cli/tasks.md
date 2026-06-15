@@ -37,8 +37,8 @@
 - [ ] 6.1 Implement `internal/cli/router.go` parsing the global `--dsn` flag and dispatching by subcommand
 - [ ] 6.2 Implement `--help` and `--version` handlers (no DB connection, plain text on stdout)
 - [ ] 6.3 Implement `internal/command/databases.go` calling `SHOW DATABASES`
-- [ ] 6.4 Implement `internal/command/tables.go` validating the argument against `^[A-Za-z0-9_]+$` and calling `` SHOW TABLES FROM `<db>` ``
-- [ ] 6.5 Implement `internal/command/describe.go` validating the argument against `^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$` and calling `` DESCRIBE `<db>`.`<table>` ``
+- [ ] 6.4 Implement `internal/command/tables.go` validating the argument against `^[A-Za-z0-9_-]+$` and calling `` SHOW TABLES FROM `<db>` ``
+- [ ] 6.5 Implement `internal/command/describe.go` validating that the argument splits on `.` into exactly two non-empty segments, each matching `^[A-Za-z0-9_-]+$`, and calling `` DESCRIBE `<db>`.`<table>` ``
 - [ ] 6.6 Implement `internal/command/query.go` running the safety scanner first, then executing the SQL; support `-` and `--stdin` to read SQL from stdin. Apply two separate 30-second timeouts: (a) on the stdin read itself (`TIMEOUT` if the pipe delivers no data), (b) on the MySQL execution via `MAX_EXECUTION_TIME` (`TIMEOUT` if the query runs too long). Both produce the same envelope + exit 6; do not distinguish them in `details`.
 - [ ] 6.7 Wire the one-to-one error-code-to-exit-code mapping in a single helper: 0/1/2/3/4/5/6/7/99
 - [ ] 6.8 Add a stdout-isolation test that asserts the only bytes written to stdout outside `--help`/`--version` paths are the single JSON envelope

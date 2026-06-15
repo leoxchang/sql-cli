@@ -90,7 +90,7 @@ Nine codes: `CONFIG_ERROR`, `CONNECTION_ERROR`, `AUTH_ERROR`, `PERMISSION_DENIED
 
 Config file lookup runs only when both `--dsn` and `SQL_CLI_DSN` are absent and `--profile` is non-empty. The merged profile map is built from two YAML files in this order (later wins by name):
 
-1. **Global config** — first existing path among `$SQL_CLI_CONFIG_DIR/config.yaml`, `$XDG_CONFIG_HOME/sql-cli/config.yaml`, `~/.config/sql-cli/config.yaml`.
+1. **Global config** — first existing path among `$SQL_CLI_CONFIG_DIR/config.yaml`, `$XDG_CONFIG_HOME/sql-cli/config.yaml`, `~/.sql-cli/config.yaml`.
 2. **Local config** — `.sql-cli.yaml` found by walking upward from the current working directory to the filesystem root.
 
 The on-disk schema is a single top-level `dsns:` map of `name: mysql://url` pairs. Each value is validated as a `mysql://` URL at load time; a malformed DSN in the config emits `CONFIG_ERROR` with the file path and the offending profile name attached. `--dsn` and `--profile` are mutually exclusive; supplying both emits `CONFIG_ERROR`.
@@ -130,7 +130,7 @@ The on-disk schema is a single top-level `dsns:` map of `name: mysql://url` pair
 
 ### D8: Strict identifier whitelist for `tables` and `describe` arguments
 
-**Decision:** `tables` validates its argument against `^[A-Za-z0-9_]+$`. `describe` validates against `^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$` (exactly one dot). Both reject anything else with `CONFIG_ERROR`, exit 2, before any SQL is built. Accepted identifiers are wrapped in backticks at SQL build time.
+**Decision:** `tables` validates its argument against `^[A-Za-z0-9_-]+$`. `describe` validates that its argument splits on `.` into two non-empty segments, each matching `^[A-Za-z0-9_-]+$` (no other segment count is accepted). Both reject anything else with `CONFIG_ERROR`, exit 2, before any SQL is built. Accepted identifiers are wrapped in backticks at SQL build time.
 
 **Why:** Without the whitelist, the SQL string is built by Go string concatenation (`fmt.Sprintf("SHOW TABLES FROM %s", db)`). Backtick injection (`app`; DROP TABLE x; -- `) is technically blocked by Go's `%s` not interpreting SQL, but the resulting statement is still a MySQL syntax error or worse. The whitelist is the simplest defence: the regex matches every legal MySQL identifier and nothing an attacker can use. Combined with the read-only MySQL account recommended in the README, the metadata subcommands are safe even if the agent is compromised.
 

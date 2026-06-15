@@ -47,7 +47,7 @@ var (
 //
 //  1. $SQL_CLI_CONFIG_DIR/config.yaml
 //  2. $XDG_CONFIG_HOME/sql-cli/config.yaml
-//  3. $HOME/.config/sql-cli/config.yaml
+//  3. $HOME/.sql-cli/config.yaml
 //
 // Returns the empty string (no error) when no file exists at any of those
 // paths; the CLI treats that as "no global config" rather than a failure.
@@ -70,7 +70,7 @@ func globalConfigCandidates() []string {
 		out = append(out, filepath.Join(dir, "sql-cli", "config.yaml"))
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		out = append(out, filepath.Join(home, ".config", "sql-cli", "config.yaml"))
+		out = append(out, filepath.Join(home, ".sql-cli", "config.yaml"))
 	}
 	return out
 }
