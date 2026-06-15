@@ -113,6 +113,8 @@ func dispatch(subcommand, dsn string, args []string) int {
 		return handleTables(dsn, args)
 	case "describe", "desc":
 		return handleDescribe(dsn, args)
+	case "indexes", "idx", "keys":
+		return handleIndexes(dsn, args)
 	case "query":
 		return handleQuery(dsn, args)
 	case "--help", "-h":
@@ -148,6 +150,10 @@ func handleQuery(dsn string, args []string) int {
 	return command.HandleQuery(dsn, args)
 }
 
+func handleIndexes(dsn string, args []string) int {
+	return command.HandleIndexes(dsn, args)
+}
+
 // printHelp displays usage information to stdout.
 // Help goes to stdout for grep/piping compatibility.
 // stderr is reserved for debug/diagnostics only.
@@ -171,6 +177,8 @@ Subcommands:
   tables [database]      List tables in database (defaults to DSN URL path)
   describe <database.table>
                         Show table structure (alias: desc)
+  indexes <database.table>
+                        Show index metadata (aliases: idx, keys)
   query <sql>           Execute SQL query
 
 Examples:
