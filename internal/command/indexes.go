@@ -1,6 +1,9 @@
 package command
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // probeSQL queries INFORMATION_SCHEMA.COLUMNS to detect which optional columns
 // exist on INFORMATION_SCHEMA.STATISTICS. IS_VISIBLE was added in MySQL 8.0.0,
@@ -14,13 +17,13 @@ var baseColumns = []string{
 	"NULLABLE", "INDEX_TYPE", "COMMENT", "INDEX_COMMENT",
 }
 
-// buildIndexSQL returns the probe SQL (always the same) and the main query SQL
-// selected based on which optional columns the server exposes.
+// buildIndexSQL returns the main query SQL selected based on which optional columns
+// the server exposes.
 //
 //   - hasIsVisible=true, hasExpression=true  → 8.0.13+: full 14 columns
 //   - hasIsVisible=true, hasExpression=false → 8.0.0-8.0.12: 12 + IS_VISIBLE + '' AS EXPRESSION
 //   - hasIsVisible=false, hasExpression=false → 5.7: 12 + '' AS IS_VISIBLE + '' AS EXPRESSION
-func buildIndexSQL(database, table string, hasIsVisible, hasExpression bool) (probe string, main string, err error) {
+func buildIndexSQL(hasIsVisible, hasExpression bool) string {
 	cols := make([]string, len(baseColumns))
 	copy(cols, baseColumns)
 
@@ -36,22 +39,8 @@ func buildIndexSQL(database, table string, hasIsVisible, hasExpression bool) (pr
 		cols = append(cols, "'' AS EXPRESSION")
 	}
 
-	main = fmt.Sprintf(
+	return fmt.Sprintf(
 		"SELECT %s FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY INDEX_NAME, SEQ_IN_INDEX",
-		joinColumns(cols),
+		strings.Join(cols, ", "),
 	)
-
-	return probeSQL, main, nil
-}
-
-// joinColumns joins column expressions with ", ".
-func joinColumns(cols []string) string {
-	result := ""
-	for i, c := range cols {
-		if i > 0 {
-			result += ", "
-		}
-		result += c
-	}
-	return result
 }

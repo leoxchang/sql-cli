@@ -5,19 +5,17 @@ import (
 	"testing"
 )
 
-func TestBuildIndexSQL_FullPath(t *testing.T) {
-	probe, main, err := buildIndexSQL("mydb", "users", true, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestProbeSQL(t *testing.T) {
+	if !strings.Contains(probeSQL, "INFORMATION_SCHEMA.COLUMNS") {
+		t.Errorf("probeSQL missing INFORMATION_SCHEMA.COLUMNS: %s", probeSQL)
 	}
+	if !strings.Contains(probeSQL, "'is_visible'") || !strings.Contains(probeSQL, "'expression'") {
+		t.Errorf("probeSQL missing column name literals: %s", probeSQL)
+	}
+}
 
-	// Probe SQL checks both IS_VISIBLE and EXPRESSION existence
-	if !strings.Contains(probe, "INFORMATION_SCHEMA.COLUMNS") {
-		t.Errorf("probe SQL missing INFORMATION_SCHEMA.COLUMNS: %s", probe)
-	}
-	if !strings.Contains(probe, "'is_visible'") || !strings.Contains(probe, "'expression'") {
-		t.Errorf("probe SQL missing column name literals: %s", probe)
-	}
+func TestBuildIndexSQL_FullPath(t *testing.T) {
+	main := buildIndexSQL(true, true)
 
 	// Full path: 14 columns including IS_VISIBLE and EXPRESSION
 	if !strings.Contains(main, "IS_VISIBLE") {
@@ -33,11 +31,7 @@ func TestBuildIndexSQL_FullPath(t *testing.T) {
 }
 
 func TestBuildIndexSQL_OnlyIsVisible(t *testing.T) {
-	probe, main, err := buildIndexSQL("mydb", "users", true, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	_ = probe
+	main := buildIndexSQL(true, false)
 
 	// 8.0.0-8.0.12: IS_VISIBLE real, EXPRESSION faked
 	if !strings.Contains(main, "IS_VISIBLE") {
@@ -50,11 +44,7 @@ func TestBuildIndexSQL_OnlyIsVisible(t *testing.T) {
 }
 
 func TestBuildIndexSQL_NeitherColumn(t *testing.T) {
-	probe, main, err := buildIndexSQL("mydb", "users", false, false)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	_ = probe
+	main := buildIndexSQL(false, false)
 
 	// 5.7: both faked
 	if !strings.Contains(main, "'' AS IS_VISIBLE") {
