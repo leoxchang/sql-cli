@@ -197,6 +197,9 @@ Examples:
   sql-cli --dsn mysql://root:pass@localhost:3306/mydb tables
   sql-cli --dsn mysql://root:pass@localhost:3306/mydb describe users
   sql-cli --dsn mysql://root:pass@localhost:3306/mydb query "SELECT * FROM users LIMIT 10"
+  sql-cli config add dev mysql://user:pass@localhost:3306/devdb
+  sql-cli config add --global prod mysql://user:pass@prod:3306/proddb
+  sql-cli config list
 
 Exit Codes:
   0   Success
