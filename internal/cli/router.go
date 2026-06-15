@@ -180,7 +180,8 @@ Subcommands:
                         Show table structure (alias: desc)
   indexes <database.table>
                         Show index metadata (aliases: idx, keys)
-  query <sql>           Execute SQL query
+  query <sql>           Execute SQL query (SELECT without LIMIT is capped
+                        at 1000 rows; override with SQL_CLI_MAX_ROWS)
 
 Examples:
   sql-cli --dsn mysql://root:pass@localhost:3306/ databases
