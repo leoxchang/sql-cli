@@ -85,3 +85,60 @@ func assertMainQueryStructure(t *testing.T, sql string) {
 		}
 	}
 }
+
+func TestParseIndexesArgs_DotSeparated(t *testing.T) {
+	db, table, err := parseIndexesArgs("mydb.users", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if db != "mydb" {
+		t.Errorf("expected database 'mydb', got %q", db)
+	}
+	if table != "users" {
+		t.Errorf("expected table 'users', got %q", table)
+	}
+}
+
+func TestParseIndexesArgs_TableOnlyWithDSN(t *testing.T) {
+	db, table, err := parseIndexesArgs("users", "mysql://u:p@h:3306/mydb")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if db != "mydb" {
+		t.Errorf("expected database 'mydb', got %q", db)
+	}
+	if table != "users" {
+		t.Errorf("expected table 'users', got %q", table)
+	}
+}
+
+func TestParseIndexesArgs_TableOnlyNoDSN(t *testing.T) {
+	_, _, err := parseIndexesArgs("users", "mysql://u:p@h:3306/")
+	if err == nil {
+		t.Fatal("expected error for single-segment with no DSN database, got nil")
+	}
+}
+
+func TestParseIndexesArgs_RejectedInputs(t *testing.T) {
+	cases := []struct {
+		name string
+		arg  string
+	}{
+		{"empty string", ""},
+		{"three segments", "a.b.c"},
+		{"dot only", "."},
+		{"trailing dot", "a."},
+		{"leading dot", ".a"},
+		{"double dot", "a..b"},
+		{"injection attempt", "mydb.users; DROP TABLE x"},
+		{"backtick injection", "`mydb`.`users`"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := parseIndexesArgs(tc.arg, "mysql://u:p@h:3306/mydb")
+			if err == nil {
+				t.Errorf("expected error for input %q, got nil", tc.arg)
+			}
+		})
+	}
+}
