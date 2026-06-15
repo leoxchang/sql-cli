@@ -1,0 +1,91 @@
+## ADDED Requirements
+
+### Requirement: `config add` 子命令
+
+`config add` 子命令 MUST 接受恰好两个位置参数 `<name> <dsn>`，把 `<dsn>` 写入到指定作用域的 YAML 配置文件里，作为名为 `<name>` 的 profile。默认作用域是 **local**——CWD 的 `.sql-cli.yaml`；可用 `--global` 改为写到 `~/.sql-cli/config.yaml`（或 v1 D5 优先级最高的 `globalConfigCandidates` 第一个非空候选）。
+
+`<name>` MUST 匹配正则 `^[A-Za-z0-9_.-]+$`，否则 emit `CONFIG_ERROR`（exit 2）。`<dsn>` MUST 通过 `ValidateMySQLURL`（v1 D4 契约），否则 emit `CONFIG_ERROR`（exit 2）。
+
+若目标作用域的 YAML 文件不存在，MUST 在对应路径新建一个，权限 MUST 为 `0600`。若已存在，权限 MUST 保持原样不变。
+
+同名 profile 已被存在时 MUST 静默覆盖（用新值替换），**且**若旧值与新值不同，MUST 在 stderr 输出一行 `replacing <name>: <old> → <new>`。若旧值等于新值，stderr 不输出。
+
+成功时 stdout MUST 输出 JSON envelope，含 `ok: true`、`profile`、`dsn`、`path`、`action`（`"created"` 或 `"overwritten"`）、`elapsed_ms`。`path` 是绝对路径。
+
+#### Scenario: 新建 local profile
+- **WHEN** CWD 没有 `.sql-cli.yaml` 且用户跑 `sql-cli config add dev mysql://u:p@host:3306/db`
+- **THEN** exit 0；stdout `action: "created"`；CWD 出现 `.sql-cli.yaml` 含 `dsns: { dev: "mysql://u:p@host:3306/db" }`；文件权限是 `0600`
+
+#### Scenario: 覆盖已有 profile
+- **WHEN** CWD `.sql-cli.yaml` 已有 `dsns: { dev: "mysql://old" }` 且用户跑 `sql-cli config add dev "mysql://new"`
+- **THEN** exit 0；stdout `action: "overwritten"`；stderr 含 `replacing dev: mysql://old → mysql://new`；文件现在 `dsns: { dev: "mysql://new" }`；权限仍是原值
+
+#### Scenario: 覆盖相同值不打印 stderr
+- **WHEN** CWD `.sql-cli.yaml` 已有 `dsns: { dev: "mysql://x" }` 且用户跑 `sql-cli config add dev "mysql://x"`
+- **THEN** exit 0；stdout `action: "overwritten"`；stderr **不**含 `replacing`
+
+#### Scenario: 新建 global profile
+- **WHEN** `~/.sql-cli/config.yaml` 不存在且用户跑 `sql-cli config add --global prod "mysql://u:p@host:3306/prod"`
+- **THEN** exit 0；stdout `action: "created"`；`~/.sql-cli/config.yaml` 出现且权限 `0600`；含 `dsns: { prod: "mysql://..." }`
+
+#### Scenario: 缺 name
+- **WHEN** 用户跑 `sql-cli config add "mysql://..."`（缺 name）
+- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出"需要 `<name> <dsn>`"
+
+#### Scenario: 缺 DSN
+- **WHEN** 用户跑 `sql-cli config add dev`（缺 DSN）
+- **THEN** exit 2 `CONFIG_ERROR`
+
+#### Scenario: profile 名含非法字符
+- **WHEN** 用户跑 `sql-cli config add "bad name" "mysql://..."`
+- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出 profile 名必须匹配 `^[A-Za-z0-9_.-]+$`
+
+#### Scenario: DSN 格式错
+- **WHEN** 用户跑 `sql-cli config add dev "not-a-url"`
+- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出 DSN 必须是 `mysql://` URL
+
+#### Scenario: 缺子命令
+- **WHEN** 用户跑 `sql-cli config`（无 `add` 或 `list`）
+- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出可用 `add` / `list`
+
+#### Scenario: 未知子命令
+- **WHEN** 用户跑 `sql-cli config remove dev`
+- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出 `remove` 不是有效子命令
+
+### Requirement: `config list` 子命令
+
+`config list` 子命令 MUST 列出当前 agent 可解析的所有 profile。默认走 merged 视图（local + global，local override global）；可用 `--local` 只列 local，可用 `--global` 只列 global。`--local` 和 `--global` 同给 MUST emit `CONFIG_ERROR`（exit 2）。
+
+接收任何位置参数 MUST emit `CONFIG_ERROR`（exit 2）。
+
+成功时 stdout MUST 输出 JSON envelope，含 `ok: true`、`profiles`（数组，每条 `{name, dsn, source}`）、`count`、`elapsed_ms`。`source` 是该 profile 实际所在文件的绝对路径。
+
+无 profile 时 MUST 返回 `profiles: []`, `count: 0`，**不**是错误。
+
+#### Scenario: merged 视图
+- **WHEN** CWD `.sql-cli.yaml` 含 `{dev: "mysql://a"}` 且 `~/.sql-cli/config.yaml` 含 `{staging: "mysql://b"}`
+- **THEN** `sql-cli config list` 返回 2 条 profile，顺序不保证；`dev` 的 `source` 指向 CWD 文件，`staging` 的 `source` 指向 home 文件
+
+#### Scenario: local override global
+- **WHEN** 两边都有同名 profile `dev`，但值不同
+- **THEN** `config list` 只返回一条 `dev`，值取 local，`source` 指向 CWD 文件（与 v1 D5 合并语义一致）
+
+#### Scenario: --local 过滤
+- **WHEN** 两边都有 profile 且用户跑 `sql-cli config list --local`
+- **THEN** 只返回 local 文件里的 profile；忽略 global
+
+#### Scenario: --global 过滤
+- **WHEN** 两边都有 profile 且用户跑 `sql-cli config list --global`
+- **THEN** 只返回 global 文件里的 profile；忽略 local
+
+#### Scenario: --local 和 --global 同给
+- **WHEN** 用户跑 `sql-cli config list --local --global`
+- **THEN** exit 2 `CONFIG_ERROR`
+
+#### Scenario: 无 profile
+- **WHEN** CWD 没有 `.sql-cli.yaml` 且 home 也没有 config
+- **THEN** `sql-cli config list` 返回 `{"ok": true, "profiles": [], "count": 0, "elapsed_ms": <n>}`；exit 0
+
+#### Scenario: 位置参数被拒
+- **WHEN** 用户跑 `sql-cli config list dev`
+- **THEN** exit 2 `CONFIG_ERROR`
