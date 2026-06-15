@@ -92,6 +92,14 @@
 - **WHEN** CWD 没有 `.sql-cli.yaml` 且 home 也没有 config
 - **THEN** `sql-cli config list` 返回 `{"ok": true, "profiles": [], "count": 0, "elapsed_ms": <n>}`；exit 0
 
+#### Scenario: 只有 local
+- **WHEN** CWD `.sql-cli.yaml` 含 `{dev: "mysql://a"}`，但 home 没有 config 文件
+- **THEN** `sql-cli config list` 返回 1 条 profile `dev`，`source` 指向 CWD 文件
+
+#### Scenario: 只有 global
+- **WHEN** home `~/.sql-cli/config.yaml` 含 `{staging: "mysql://b"}`，但 CWD 没有 `.sql-cli.yaml`
+- **THEN** `sql-cli config list` 返回 1 条 profile `staging`，`source` 指向 home 文件
+
 #### Scenario: 位置参数被拒
 - **WHEN** 用户跑 `sql-cli config list dev`
 - **THEN** exit 2 `CONFIG_ERROR`
