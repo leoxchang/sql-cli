@@ -230,7 +230,7 @@ func WriteProfileMap(path string, pm ProfileMap) error {
 
 	// Ensure parent directory exists
 	parent := filepath.Dir(path)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
+	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return fmt.Errorf("create parent directory for %q: %w", path, err)
 	}
 

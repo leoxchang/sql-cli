@@ -134,10 +134,13 @@ func handleConfigAdd(args []string) int {
 	if isGlobal {
 		targetPath = config.FindGlobalConfigPath()
 		if targetPath == "" {
-			// No existing global config — write to fallback path ~/.sql-cli/config.yaml
 			home, _ := os.UserHomeDir()
 			if home == "" {
 				home = os.Getenv("HOME")
+			}
+			if home == "" {
+				fmt.Fprintln(os.Stderr, "Error: cannot determine home directory for global config")
+				return output.ErrorCodeConfigError.ExitCode()
 			}
 			targetPath = filepath.Join(home, ".sql-cli", "config.yaml")
 		}
