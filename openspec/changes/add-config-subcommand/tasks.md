@@ -5,6 +5,7 @@
 - [ ] 1.1 在 `internal/config/profile.go` 新增 `WriteProfileMap(path string, pm ProfileMap) error`：
   - `if pm == nil { pm = ProfileMap{} }`——nil map 规范化（**防 #2 后续 handler panic**）
   - 序列化前按 key 字母序排序（**防 #7 map 迭代随机导致输出不确定**）：复用 `sortedKeys(pm)` 或 `sort.Strings(keys)`，用 `yaml.Node` 或手写字节流保序
+  - `os.MkdirAll(filepath.Dir(path), 0o700)`——确保父目录存在（首次 `config add --global` 时 `~/.sql-cli/` 不存在）
   - `os.CreateTemp` 在 `filepath.Dir(path)` 创建 temp 文件（模式 `0600`）
   - `yaml.Marshal(ProfileConfig{DSNs: pm})` 写 temp
   - 检查目标文件是否存在：
@@ -31,7 +32,7 @@
   - **`handleConfigAdd(args)`：**
     - 解析 flag：`--global`（bool）
     - 位置参数：`<name> <dsn>`（恰好 2 个，否则 CONFIG_ERROR）
-    - profile 名匹配 `^[A-Za-z0-9_.-]+$`（否则 CONFIG_ERROR）
+    - profile 名匹配 `^[A-Za-z0-9_][A-Za-z0-9_.-]*$`（首字符字母数字或 `_`，否则 CONFIG_ERROR）
     - `config.ValidateMySQLURL(dsn)`（否则 CONFIG_ERROR，错误含"DSN 格式"）
     - 决定目标路径：
       - `--global`：`config.FindGlobalConfigPath()` 若空则用 `~/.sql-cli/config.yaml`（v1 fallback 3）
@@ -67,9 +68,11 @@
   - **`TestHandleConfigAdd_MissingName`**：`config add` → CONFIG_ERROR
   - **`TestHandleConfigAdd_MissingDSN`**：`config add dev` → CONFIG_ERROR
   - **`TestHandleConfigAdd_InvalidProfileName`**：`config add "bad name" mysql://...` → CONFIG_ERROR
+  - **`TestHandleConfigAdd_ProfileStartsWithDash`**：`config add -dev mysql://...` → CONFIG_ERROR（Go flag parser 会把 `-dev` 当 flag 解析）
   - **`TestHandleConfigAdd_InvalidDSN`**：`config add dev "not-a-url"` → CONFIG_ERROR
   - **`TestHandleConfigAdd_LocalCreatesFile`**：chdir 到 `t.TempDir()`（用 `t.Chdir(tempDir)`，**测试结束自动 restore**），跑 `config add dev mysql://u:p@h:3306/db` → CWD 有 `.sql-cli.yaml` 含该 profile；权限 `0600`
   - **`TestHandleConfigAdd_GlobalUsesHome`**：跑 `config add --global dev mysql://...` 时用 `t.Setenv("HOME", tempHome)` 和 `t.Setenv("XDG_CONFIG_HOME", "")` 和 `t.Setenv("SQL_CLI_CONFIG_DIR", "")` → 文件在 `tempHome/.sql-cli/config.yaml`
+  - **`TestHandleConfigAdd_GlobalCreatesDir`**：首次 `config add --global dev mysql://...` 时 `~/.sql-cli/` 目录不存在 → 自动创建目录（`os.MkdirAll`），文件写入成功
   - **`TestHandleConfigAdd_EmptyFileDoesNotPanic`**: 预创建空 `.sql-cli.yaml`（`os.WriteFile(path, []byte{}, 0o600)`）→ add 不 panic，profile 写入成功（**防 #3 nil map panic**）
   - **`TestMaskDSN`**（在 `internal/command/config_test.go`）：
     - `mysql://u:p@h:3306/db` → `mysql://u:****@h:3306/db`

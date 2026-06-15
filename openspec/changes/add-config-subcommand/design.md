@@ -37,11 +37,12 @@
 
 1. 读现有文件 → 解析为 `ProfileMap`（若不存在则空 map）。
 2. 在内存中 `merged[name] = newDSN`。
-3. 写 `os.CreateTemp(dir, ".sql-cli.yaml.*")` 到目标目录。
-4. `yaml.Marshal` 到 temp（按 key 字母序）。
-5. `temp.Chmod(0o600)`（**仅**当目标文件原本不存在）。
-6. `os.Rename(temp, target)`——POSIX 原子。
-7. 删除 temp（如 rename 失败）。
+3. `os.MkdirAll(filepath.Dir(path), 0o700)`——确保父目录存在（首次 `config add --global` 时 `~/.sql-cli/` 不存在）。
+4. 写 `os.CreateTemp(dir, ".sql-cli.yaml.*")` 到目标目录。
+5. `yaml.Marshal` 到 temp（按 key 字母序）。
+6. `temp.Chmod(0o600)`（**仅**当目标文件原本不存在）。
+7. `os.Rename(temp, target)`——POSIX 原子。
+8. 删除 temp（如 rename 失败）。
 
 **理由：** `os.Rename` 在同一文件系统内是原子的；崩溃只会留 temp 文件，下次写入覆盖。`yaml.Marshal` 重写文件比 Node-tree 保留注释简单 5-10 倍代码；丢注释是有意识取舍。
 
@@ -58,11 +59,11 @@
 
 **与 `FindLocalConfigPath` 的分歧：** 加载用向上找（"我所在的项目有哪些 profile"），写入只用 CWD（"我显式要写哪里"）。两者**不**是同一函数。
 
-### D3（本次变更）：profile 名格式 `^[A-Za-z0-9_.-]+$`
+### D3（本次变更）：profile 名格式 `^[A-Za-z0-9_][A-Za-z0-9_.-]*$`
 
-**决策：** profile 名必须匹配 `^[A-Za-z0-9_.-]+$`（字母数字 + `_` + `.` + `-`）。否则 `CONFIG_ERROR` exit 2。
+**决策：** profile 名必须匹配 `^[A-Za-z0-9_][A-Za-z0-9_.-]*$`（首字符字母数字或 `_`，后续字符字母数字 + `_` + `.` + `-`）。否则 `CONFIG_ERROR` exit 2。
 
-**理由：** YAML 键可以含几乎任何字符，但当 profile 名出现在命令行、错误信息、shell tab-completion 时，受限字符集能避免转义噩梦。这个集合跟 MySQL host 段、URL 用户名段的允许子集一致。
+**理由：** YAML 键可以含几乎任何字符，但当 profile 名出现在命令行、错误信息、shell tab-completion 时，受限字符集能避免转义噩梦。首字符禁止 `-` 是因为 Go 的 `flag` 包会把 `-dev` 当作 flag 解析，导致 `config add -dev mysql://...` 报错 "flag provided but not defined: -dev"。首字符禁止 `.` 是因为 `.` 和 `..` 在 shell 里有特殊含义（当前目录 / 父目录），用作 profile 名会引起混淆。
 
 **为什么拒绝空格和 `/`：** YAML 里 `dev: mysql://...` 的 `dev` 是单 token；含空格需要引号。YAML 里可以用引号，但**键**的引号在错误消息里更难看。
 
@@ -94,7 +95,7 @@
 | 缺子命令（`sql-cli config`，无 `add`/`list`） | `CONFIG_ERROR` | 2 | command handler |
 | `config add` 缺 profile 名 | `CONFIG_ERROR` | 2 | command handler |
 | `config add` 缺 DSN | `CONFIG_ERROR` | 2 | command handler |
-| `config add` profile 名不匹配 `^[A-Za-z0-9_.-]+$` | `CONFIG_ERROR` | 2 | command handler |
+| `config add` profile 名不匹配 `^[A-Za-z0-9_][A-Za-z0-9_.-]*$` | `CONFIG_ERROR` | 2 | command handler |
 | `config add` DSN 验 `ValidateMySQLURL` 失败 | `CONFIG_ERROR` | 2 | command handler |
 | `config list` 收到位置参数 | `CONFIG_ERROR` | 2 | command handler |
 | `--local` 和 `--global` 同时给 | `CONFIG_ERROR` | 2 | command handler |

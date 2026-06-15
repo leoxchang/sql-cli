@@ -21,7 +21,7 @@ v1 的 `--profile <name>` 机制允许 agent 通过 YAML 配置文件里的命�
 - **`config list` 默认 merged**（local + global，local 优先），可用 `--local` / `--global` 过滤。无 profile 时返回空数组，**不**是错误。
 - **JSON 信封**。`add` 成功走成功 envelope；`list` 成功走成功 envelope；所有失败模式走错误 envelope。
 - **DSN 验证**：复用 v1 的 `ValidateMySQLURL`——格式错误立即拒绝。
-- **Profile 名验证**：`^[A-Za-z0-9_.-]+$`（字母数字、`_`、`.`、`-`）。和 `mysql://` 的 host 段规则一致，避免 YAML 键含特殊字符。
+- **Profile 名验证**：`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`（首字符字母数字或 `_`，后续字母数字 + `_` + `.` + `-`）。首字符禁止 `-` 是因为 Go flag parser 会把 `-dev` 当 flag 解析；首字符禁止 `.` 是因为 `.` / `..` 在 shell 里有特殊含义。
 
 ## Capabilities
 

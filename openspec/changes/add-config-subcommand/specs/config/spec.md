@@ -4,7 +4,7 @@
 
 `config add` 子命令 MUST 接受恰好两个位置参数 `<name> <dsn>`，把 `<dsn>` 写入到指定作用域的 YAML 配置文件里，作为名为 `<name>` 的 profile。默认作用域是 **local**——CWD 的 `.sql-cli.yaml`；可用 `--global` 改为写到 `~/.sql-cli/config.yaml`（或 v1 D5 优先级最高的 `globalConfigCandidates` 第一个非空候选）。
 
-`<name>` MUST 匹配正则 `^[A-Za-z0-9_.-]+$`，否则 emit `CONFIG_ERROR`（exit 2）。`<dsn>` MUST 通过 `ValidateMySQLURL`（v1 D4 契约），否则 emit `CONFIG_ERROR`（exit 2）。
+`<name>` MUST 匹配正则 `^[A-Za-z0-9_][A-Za-z0-9_.-]*$`（首字符字母数字或 `_`，后续字母数字 + `_` + `.` + `-`），否则 emit `CONFIG_ERROR`（exit 2）。`<dsn>` MUST 通过 `ValidateMySQLURL`（v1 D4 契约），否则 emit `CONFIG_ERROR`（exit 2）。
 
 若目标作用域的 YAML 文件不存在，MUST 在对应路径新建一个，权限 **SHOULD** 为 `0600`（POSIX 文件系统的默认值）。若底层文件系统不支持 `chmod`（FAT、SMB 共享等），改用实际可达的最高限制权限并以 `INTERNAL_ERROR` exit 99 报告，但**写入本身**仍可继续。已存在的文件 MUST 保持其权限不变。
 
