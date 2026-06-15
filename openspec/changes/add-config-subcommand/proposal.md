@@ -38,7 +38,7 @@ v1 的 `--profile <name>` 机制允许 agent 通过 YAML 配置文件里的命�
 - **新增 Go 文件** `internal/command/config.go`（约 200 行，沿用 `tables.go` / `describe.go` 模板）。
 - **新增 Go 文件** `internal/command/config_test.go`（单元测试，不依赖 driver）。
 - **config 包变更**：`internal/config/profile.go` 新增 `WriteProfileMap(path string, pm ProfileMap) error`（原子写、YAML 序列化、chmod 600）；`internal/config/profile.go` 现有 `LoadProfileMap` / `LoadMergedConfig` / `FindGlobalConfigPath` / `FindLocalConfigPath` **不变**。
-- **router 改动**：`internal/cli/router.go` 的 `dispatch()` 多一个 `case "config":`；`printHelp()` 多 4 行（add + list）。
+- **router 改动**：`internal/cli/router.go` 的 `dispatch()` 多一个 `case "config":`；`printHelp()` 多 2 行（`config add` + `config list`）。
 - **不新增依赖**。`os.WriteFile` / `os.Rename` / `os.Chmod` 都在 stdlib；YAML 用现有 `gopkg.in/yaml.v3`。
 - **README** 多一段 `config` 子命令说明。
 - **v1 spec 影响**：无变更。`config` 是新能力，不修改 v1 既有 `config` requirement。

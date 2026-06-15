@@ -6,7 +6,7 @@
 
 `<name>` MUST 匹配正则 `^[A-Za-z0-9_.-]+$`，否则 emit `CONFIG_ERROR`（exit 2）。`<dsn>` MUST 通过 `ValidateMySQLURL`（v1 D4 契约），否则 emit `CONFIG_ERROR`（exit 2）。
 
-若目标作用域的 YAML 文件不存在，MUST 在对应路径新建一个，权限 MUST 为 `0600`。若已存在，权限 MUST 保持原样不变。
+若目标作用域的 YAML 文件不存在，MUST 在对应路径新建一个，权限 **SHOULD** 为 `0600`（POSIX 文件系统的默认值）。若底层文件系统不支持 `chmod`（FAT、SMB 共享等），改用实际可达的最高限制权限并以 `INTERNAL_ERROR` exit 99 报告，但**写入本身**仍可继续。已存在的文件 MUST 保持其权限不变。
 
 同名 profile 已被存在时 MUST 静默覆盖（用新值替换），**且**若旧值与新值不同，MUST 在 stderr 输出一行 `replacing <name>: <old> → <new>`。若旧值等于新值，stderr 不输出。
 
@@ -51,6 +51,10 @@
 #### Scenario: 未知子命令
 - **WHEN** 用户跑 `sql-cli config remove dev`
 - **THEN** exit 2 `CONFIG_ERROR`；错误信息点出 `remove` 不是有效子命令
+
+#### Scenario: 写文件失败
+- **WHEN** 目标作用域路径所在目录不可写（例：父目录是只读挂载），或磁盘已满
+- **THEN** exit 99 `INTERNAL_ERROR`；details 含系统错误（`syscall.EACCES` / `ENOSPC` 等）
 
 ### Requirement: `config list` 子命令
 

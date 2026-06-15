@@ -64,6 +64,8 @@
 
 **为什么拒绝空格和 `/`：** YAML 里 `dev: mysql://...` 的 `dev` 是单 token；含空格需要引号。YAML 里可以用引号，但**键**的引号在错误消息里更难看。
 
+**为什么不复用 v1 `validIdentifier`（`^[A-Za-z0-9_-]+$`）：** profile 名是 YAML 键的语义层级标签，允许 `.`（如 `db.dev` 表示"dev profile for db"）；`validIdentifier` 是 MySQL 标识符白名单，不含 `.`。两者用途不同——profile 字符串**不**会进入 SQL，宽松一点不会引入 SQL 注入面。
+
 ### D4（本次变更）：覆盖前 stderr 提示
 
 **决策：** 如果目标 profile 已存在且值不同，**先**写 stderr 一行 `replacing <name>: <old> → <new>`，**再**写入。stdout 的 JSON envelope 仍有 `action: "overwritten"`。
@@ -125,19 +127,7 @@
 }
 ```
 
-**约定：** `action` 只在 `add` 出现；`profiles` / `count` 只在 `list` 出现。两条路径不共享 `output.WriteSuccess` 的固定列——需要一个轻量级 `output.WriteSuccessFields(w, fields map[string]any)`。**不**为这两个子命令扩展 `Envelope` 结构体（v1 D2 契约保持封闭）。
-
-**实现：** handler 直接 `json.NewEncoder(w).Encode(map[string]any{...})`——v1 `WriteSuccess` 之外的一条旁路，仅供这两个不规则字段用。
-
-**等等——这破 D2 契约了吗？** 让我重新看。
-
-v1 D2 说 "v1 D2 承诺一种成功信封形状 `{"ok": true, "columns": [...], "rows": [...], "row_count": N, "elapsed_ms": N}`。新子命令必须契合这个形状，不能加 `indexes` 扩展字段。"
-
-这是 `indexes` 变更的措辞——`indexes` 因为有 14 列才被要求契合表状形状。`config add` / `config list` 没有"列"——它们的成功输出是**自由结构**。
-
-**重新决定：** `add` / `list` 走**自定 JSON 形状**（不强制 `columns`/`rows`），仍包 `ok: true`。这跟 `help` / `version` 走纯文本、但 help/version 不是"产生数据的子命令"是同类的破例。
-
-**落定：** `config add` / `config list` 的成功路径是自由 JSON object，但**根**必须有 `"ok": true`；agent 的判别式只看 `ok` 字段。失败走现有 `WriteError`。
+**实现：** handler 直接 `json.NewEncoder(w).Encode(map[string]any{...})`——不走 `output.WriteSuccess`，因为 v1 D2 的 envelope 形状（`columns`/`rows`/`row_count`）不适用。`config add` / `config list` 产生**自由形状**对象，根必有 `"ok": true`；agent 判别式只看 `ok` 字段。错误仍走 `output.WriteError`。这是 v1 D2 的有意破例——`help` / `version` 已走纯文本，`config` 类同样不契合"产生数据子命令的列状信封"模型。
 
 ## 输出 schema
 
@@ -176,7 +166,7 @@ v1 D2 说 "v1 D2 承诺一种成功信封形状 `{"ok": true, "columns": [...], 
 - **[风险] 重写文件丢注释** → *缓解*：在 help 和 README 明确说明。文档化。
 - **[风险] 误覆盖 profile** → *缓解*：stderr 打印旧值；JSON 里 `action` 字段显式标记。
 - **[风险] agent 写脚本时不希望 stderr 噪音** → *缓解*：旧值等于新值时不打印。
-- **[风险] `chmod 600` 在某些文件系统上失败** → *缓解*：仅当 `os.Chmod` 报错时降级——继续写入但不保证权限，给 `INTERNAL_ERROR`。
+- **[风险] `chmod 600` 在某些文件系统上失败** → *缓解*：`INTERNAL_ERROR` exit 99 上送，但写入仍完成（与 spec 同步：SHOULD 0600，文件系统不支持时 INTERNAL_ERROR 报告）。
 - **[风险] CWD 不可写** → *缓解*：`os.WriteFile` 报错 → `INTERNAL_ERROR`，details 含系统错误。
 
 ## 错误映射
