@@ -3,6 +3,7 @@
 ## 1. config 包：原子写
 
 - [ ] 1.1 在 `internal/config/profile.go` 新增 `WriteProfileMap(path string, pm ProfileMap) error`：
+  - `if pm == nil { pm = ProfileMap{} }`——nil map 规范化（**防 #2 后续 handler panic**）
   - `os.CreateTemp` 在 `filepath.Dir(path)` 创建 temp 文件（模式 `0600`）
   - `yaml.Marshal(ProfileConfig{DSNs: pm})` 写 temp
   - 检查目标文件是否存在：
@@ -12,8 +13,8 @@
 - [ ] 1.2 单元测试 `internal/config/profile_test.go`：
   - `TestWriteProfileMap_NewFile`：`WriteProfileMap` 到新路径 → 文件存在、内容是有效 YAML、能 `LoadProfileMap` 读回
   - `TestWriteProfileMap_Overwrite`：先写一次 `dsns: {a: "x"}`，再写 `dsns: {a: "y", b: "z"}` → 读回含两个 key
-  - `TestWriteProfileMap_NewFileChmod600`：新文件 → 权限是 `0600`（`os.Stat` 检查）
-  - `TestWriteProfileMap_ExistingFilePreservesPerm`：用 `os.Chmod(path, 0o644)` 预设 → `WriteProfileMap` 后仍是 `0644`
+  - `TestWriteProfileMap_NewFileChmod600`：新文件 → 权限是 `0600`（`os.Stat` 检查）。**Windows 上 skip**：`if runtime.GOOS == "windows" { t.Skip("chmod semantics differ on Windows") }`
+  - `TestWriteProfileMap_ExistingFilePreservesPerm`：用 `os.Chmod(path, 0o644)` 预设 → `WriteProfileMap` 后仍是 `0644`。**Windows 上 skip**：同上
   - `TestWriteProfileMap_PreservesMapOrder`：用 5 个 key 写入 → 读回时 yaml.Unmarshal 出来的 key 顺序与写入顺序一致
   - `TestWriteProfileMap_EmptyMap`：`WriteProfileMap` 空 map → 文件含 `dsns: {}` 或 `dsns:` 标签——不严格，只要 `LoadProfileMap` 读回得到空 map
   - `TestWriteProfileMap_DirNotExist`：写到一个不存在的目录 → 返回错误
@@ -68,6 +69,8 @@
   - **`TestHandleConfigAdd_InvalidDSN`**：`config add dev "not-a-url"` → CONFIG_ERROR
   - **`TestHandleConfigAdd_LocalCreatesFile`**：在临时目录跑 `config add dev mysql://u:p@h:3306/db` → CWD 有 `.sql-cli.yaml` 含该 profile；权限 `0600`（chdir 到 t.TempDir()）
   - **`TestHandleConfigAdd_GlobalUsesHome`**：跑 `config add --global dev mysql://...` 时用 `t.Setenv("HOME", tempHome)` 和 `t.Setenv("XDG_CONFIG_HOME", "")` 和 `t.Setenv("SQL_CLI_CONFIG_DIR", "")` → 文件在 `tempHome/.sql-cli/config.yaml`
+  - **`TestHandleConfigAdd_EmptyFileDoesNotPanic`**: 预创建空 `.sql-cli.yaml`（`os.WriteFile(path, []byte{}, 0o600)`）→ add 不 panic，profile 写入成功（**防 #3 nil map panic**）
+  - **`TestMaskDSN`**（在 `internal/command/config_test.go`）：`maskDSN("mysql://u:p@h:3306/db")` → `"mysql://u:****@h:3306/db"`；无 password 段原样返回（`mysql://u@h:3306/db`）；非 mysql URL 原样返回
   - **`TestHandleConfigAdd_OverwriteStderrAnnounces`**：先 add，再 add 同名不同 dsn → 第二次 stderr 含 `replacing` 字样；第二次 stdout JSON `action` 是 `"overwritten"`
   - **`TestHandleConfigAdd_SameValueNoStderr`**：先 add，再 add 同名同 dsn → stderr 不含 `replacing`；action 是 `"overwritten"`（不区分）
   - **`TestHandleConfigList_Empty`**：无 profile → `profiles: []`, `count: 0`

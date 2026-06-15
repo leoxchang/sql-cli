@@ -107,7 +107,7 @@
 {
   "ok": true,
   "profile": "dev",
-  "dsn": "mysql://u:p@host:3306/db",
+  "dsn": "mysql://u:****@host:3306/db",
   "path": "/abs/path/to/.sql-cli.yaml",
   "action": "created" | "overwritten",
   "elapsed_ms": 3
@@ -119,13 +119,15 @@
 {
   "ok": true,
   "profiles": [
-    {"name": "dev", "dsn": "mysql://...", "source": "/abs/path/to/.sql-cli.yaml"},
-    {"name": "staging", "dsn": "mysql://...", "source": "/home/x/.sql-cli/config.yaml"}
+    {"name": "dev", "dsn": "mysql://u:****@host:3306/db", "source": "/abs/path/to/.sql-cli.yaml"},
+    {"name": "staging", "dsn": "mysql://u:****@db.staging.example.com:3306/", "source": "/home/x/.sql-cli/config.yaml"}
   ],
   "count": 2,
   "elapsed_ms": 1
 }
 ```
+
+**DSN 掩码：** `dsn` 字段 MUST 是 `mysql://u:****@host:3306/db` 形式——password 段（`user info` 的 `:` 后到 `@` 前）替换为字面量 `****`。这是为了避免密码在 stdout 暴露（`sql-cli config list | jq` 不该 leak 密码）。文件里存的**仍是完整 DSN**（`WriteProfileMap` 不过滤），掩码只在 envelope 输出层发生。掩码规则：scheme 是 `mysql` 且有 `user:pass@` 段才掩码；其他形式（无密码、scheme 不是 mysql）原样。
 
 **实现：** handler 直接 `json.NewEncoder(w).Encode(map[string]any{...})`——不走 `output.WriteSuccess`，因为 v1 D2 的 envelope 形状（`columns`/`rows`/`row_count`）不适用。`config add` / `config list` 产生**自由形状**对象，根必有 `"ok": true`；agent 判别式只看 `ok` 字段。错误仍走 `output.WriteError`。这是 v1 D2 的有意破例——`help` / `version` 已走纯文本，`config` 类同样不契合"产生数据子命令的列状信封"模型。
 

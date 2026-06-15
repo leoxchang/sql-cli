@@ -12,6 +12,8 @@
 
 成功时 stdout MUST 输出 JSON envelope，含 `ok: true`、`profile`、`dsn`、`path`、`action`（`"created"` 或 `"overwritten"`）、`elapsed_ms`。`path` 是绝对路径。
 
+**DSN 掩码：** `dsn` 字段 MUST 是 `mysql://u:****@host:3306/db` 形式——password 段（`user info` 的 `:` 后到 `@` 前）替换为字面量 `****`。文件里存的仍是完整 DSN，掩码仅在 envelope 输出层。**YAML 文件其他顶层键（如 `version: 1`、`default_profile: dev`）在 `add` 后会被擦掉**——`WriteProfileMap` 只重写 `dsns` 字段。
+
 #### Scenario: 新建 local profile
 - **WHEN** CWD 没有 `.sql-cli.yaml` 且用户跑 `sql-cli config add dev mysql://u:p@host:3306/db`
 - **THEN** exit 0；stdout `action: "created"`；CWD 出现 `.sql-cli.yaml` 含 `dsns: { dev: "mysql://u:p@host:3306/db" }`；文件权限是 `0600`
@@ -30,7 +32,7 @@
 
 #### Scenario: 缺 name
 - **WHEN** 用户跑 `sql-cli config add "mysql://..."`（缺 name）
-- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出"需要 `<name> <dsn>`"
+- **THEN** exit 2 `CONFIG_ERROR`
 
 #### Scenario: 缺 DSN
 - **WHEN** 用户跑 `sql-cli config add dev`（缺 DSN）
@@ -38,19 +40,19 @@
 
 #### Scenario: profile 名含非法字符
 - **WHEN** 用户跑 `sql-cli config add "bad name" "mysql://..."`
-- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出 profile 名必须匹配 `^[A-Za-z0-9_.-]+$`
+- **THEN** exit 2 `CONFIG_ERROR`
 
 #### Scenario: DSN 格式错
 - **WHEN** 用户跑 `sql-cli config add dev "not-a-url"`
-- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出 DSN 必须是 `mysql://` URL
+- **THEN** exit 2 `CONFIG_ERROR`
 
 #### Scenario: 缺子命令
 - **WHEN** 用户跑 `sql-cli config`（无 `add` 或 `list`）
-- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出可用 `add` / `list`
+- **THEN** exit 2 `CONFIG_ERROR`
 
 #### Scenario: 未知子命令
 - **WHEN** 用户跑 `sql-cli config remove dev`
-- **THEN** exit 2 `CONFIG_ERROR`；错误信息点出 `remove` 不是有效子命令
+- **THEN** exit 2 `CONFIG_ERROR`
 
 #### Scenario: 写文件失败
 - **WHEN** 目标作用域路径所在目录不可写（例：父目录是只读挂载），或磁盘已满
@@ -62,7 +64,7 @@
 
 接收任何位置参数 MUST emit `CONFIG_ERROR`（exit 2）。
 
-成功时 stdout MUST 输出 JSON envelope，含 `ok: true`、`profiles`（数组，每条 `{name, dsn, source}`）、`count`、`elapsed_ms`。`source` 是该 profile 实际所在文件的绝对路径。
+成功时 stdout MUST 输出 JSON envelope，含 `ok: true`、`profiles`（数组，每条 `{name, dsn, source}`）、`count`、`elapsed_ms`。`source` 是该 profile 实际所在文件的绝对路径。`dsn` 字段 MUST 是掩码后的形式（`mysql://u:****@host:3306/db`），password 段替换为字面量 `****`，避免 stdout 泄露密码。
 
 无 profile 时 MUST 返回 `profiles: []`, `count: 0`，**不**是错误。
 
