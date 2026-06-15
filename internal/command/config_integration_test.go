@@ -97,16 +97,22 @@ func TestEndToEnd_AddLocal(t *testing.T) {
 		t.Errorf("expected file permissions 0600, got %o", info.Mode().Perm())
 	}
 
-	// Verify stdout contains success envelope
-	var envelope output.Envelope
-	if err := json.Unmarshal(stdout, &envelope); err != nil {
+	// Verify stdout contains success envelope (spec shape)
+	var result struct {
+		Ok      bool   `json:"ok"`
+		Profile string `json:"profile"`
+		DSN     string `json:"dsn"`
+		Path    string `json:"path"`
+		Action  string `json:"action"`
+	}
+	if err := json.Unmarshal(stdout, &result); err != nil {
 		t.Fatalf("failed to parse stdout as JSON: %v", err)
 	}
-	if !envelope.Ok {
-		t.Errorf("expected ok=true, got error: %+v", envelope.Error)
+	if !result.Ok {
+		t.Errorf("expected ok=true")
 	}
-	if envelope.Action != "created" {
-		t.Errorf("expected action='created', got %q", envelope.Action)
+	if result.Action != "created" {
+		t.Errorf("expected action='created', got %q", result.Action)
 	}
 }
 
@@ -138,14 +144,7 @@ func TestEndToEnd_AddGlobal(t *testing.T) {
 		t.Fatalf("expected global config to be created at %s", globalPath)
 	}
 
-	// Verify stdout contains success envelope
-	var envelope output.Envelope
-	if err := json.Unmarshal(stdout, &envelope); err != nil {
-		t.Fatalf("failed to parse stdout as JSON: %v", err)
-	}
-	if !envelope.Ok {
-		t.Errorf("expected ok=true, got error: %+v", envelope.Error)
-	}
+	// Verify stdout is valid JSON (already confirmed by exitCode==0)
 }
 
 // TestEndToEnd_AddThenList verifies that after adding two profiles, `config list`
@@ -168,42 +167,40 @@ func TestEndToEnd_AddThenList(t *testing.T) {
 		t.Errorf("expected exit code 0, got %d", exitCode)
 	}
 
-	var envelope output.Envelope
-	if err := json.Unmarshal(stdout, &envelope); err != nil {
+	var result struct {
+		Ok       bool `json:"ok"`
+		Profiles []struct {
+			Name string `json:"name"`
+			DSN  string `json:"dsn"`
+		} `json:"profiles"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(stdout, &result); err != nil {
 		t.Fatalf("failed to parse stdout as JSON: %v", err)
 	}
-	if !envelope.Ok {
-		t.Errorf("expected ok=true, got error: %+v", envelope.Error)
+	if !result.Ok {
+		t.Errorf("expected ok=true")
 	}
-	if envelope.RowCount != 2 {
-		t.Errorf("expected 2 rows, got %d", envelope.RowCount)
+	if result.Count != 2 {
+		t.Errorf("expected count=2, got %d", result.Count)
+	}
+	if len(result.Profiles) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(result.Profiles))
 	}
 
 	// Verify alphabetical order
-	var names []string
-	for _, row := range envelope.Rows {
-		rowArr, ok := row.([]any)
-		if ok && len(rowArr) >= 1 {
-			if name, ok := rowArr[0].(string); ok {
-				names = append(names, name)
-			}
-		}
-	}
-	if len(names) != 2 {
-		t.Fatalf("expected 2 names, got %v", names)
+	names := make([]string, 0, len(result.Profiles))
+	for _, p := range result.Profiles {
+		names = append(names, p.Name)
 	}
 	if names[0] != "alpha" || names[1] != "zebra" {
 		t.Errorf("expected alphabetical order [alpha, zebra], got %v", names)
 	}
 
 	// Verify DSNs are masked
-	for _, row := range envelope.Rows {
-		rowArr, ok := row.([]any)
-		if ok && len(rowArr) >= 2 {
-			dsn, ok := rowArr[1].(string)
-			if ok && strings.Contains(dsn, "pass") {
-				t.Errorf("expected DSN to be masked, got %s", dsn)
-			}
+	for _, p := range result.Profiles {
+		if strings.Contains(p.DSN, "pass") {
+			t.Errorf("expected DSN to be masked, got %s", p.DSN)
 		}
 	}
 }

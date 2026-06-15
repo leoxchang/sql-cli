@@ -96,7 +96,6 @@ type Envelope struct {
 	RowCount     int      `json:"row_count,omitempty"`
 	Elapsed      int64    `json:"elapsed_ms,omitempty"`
 	TableComment string   `json:"table_comment,omitempty"` // For describe command: table comment
-	Action       string   `json:"action,omitempty"`        // For config add: "created", "overwritten", "unchanged"
 
 	// Failure field (only populated when Ok is false)
 	Error *ErrorDetail `json:"error,omitempty"`

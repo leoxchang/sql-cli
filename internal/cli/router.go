@@ -70,11 +70,6 @@ func Run(args []string) int {
 		return 0
 	}
 
-	// "config" subcommand does not need DSN — dispatch directly
-	if remaining[0] == "config" {
-		return dispatch("config", "", remaining[1:])
-	}
-
 	// Reject --dsn + --profile together. --profile only makes sense as a
 	// fall-back when the user has not supplied an explicit DSN.
 	if *dsn != "" && *profile != "" {

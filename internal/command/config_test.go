@@ -666,26 +666,39 @@ func TestHandleConfigList_LocalOnly(t *testing.T) {
 
 	var buf bytes.Buffer
 	buf.ReadFrom(r)
-	var envelope output.Envelope
-	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+	var result struct {
+		Ok       bool `json:"ok"`
+		Profiles []struct {
+			Name   string `json:"name"`
+			DSN    string `json:"dsn"`
+			Source string `json:"source"`
+		} `json:"profiles"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
 		t.Fatalf("failed to parse output: %v", err)
 	}
 
-	if !envelope.Ok {
-		t.Errorf("expected success envelope, got error: %+v", envelope.Error)
+	if !result.Ok {
+		t.Errorf("expected success envelope, got ok=false")
 	}
-	if envelope.RowCount != 1 {
-		t.Errorf("expected 1 row, got %d", envelope.RowCount)
+	if result.Count != 1 {
+		t.Errorf("expected count=1, got %d", result.Count)
+	}
+	if len(result.Profiles) != 1 {
+		t.Errorf("expected 1 profile, got %d", len(result.Profiles))
 	}
 
 	// Verify DSN is masked
-	if len(envelope.Rows) > 0 {
-		row, ok := envelope.Rows[0].([]any)
-		if ok && len(row) >= 2 {
-			dsn, _ := row[1].(string)
-			if dsn != "mysql://user:****@localhost:3306/db" {
-				t.Errorf("expected masked DSN, got %s", dsn)
-			}
+	if len(result.Profiles) > 0 {
+		if result.Profiles[0].DSN != "mysql://user:****@localhost:3306/db" {
+			t.Errorf("expected masked DSN, got %s", result.Profiles[0].DSN)
+		}
+		// Normalize path for macOS /var -> /private/var symlink
+		normalizedSource, _ := filepath.EvalSymlinks(result.Profiles[0].Source)
+		normalizedLocalPath, _ := filepath.EvalSymlinks(localPath)
+		if normalizedSource != normalizedLocalPath {
+			t.Errorf("expected source=%s, got %s", localPath, result.Profiles[0].Source)
 		}
 	}
 }
@@ -722,16 +735,38 @@ func TestHandleConfigList_GlobalOnly(t *testing.T) {
 
 	var buf bytes.Buffer
 	buf.ReadFrom(r)
-	var envelope output.Envelope
-	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+	var result struct {
+		Ok       bool `json:"ok"`
+		Profiles []struct {
+			Name   string `json:"name"`
+			DSN    string `json:"dsn"`
+			Source string `json:"source"`
+		} `json:"profiles"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
 		t.Fatalf("failed to parse output: %v", err)
 	}
 
-	if !envelope.Ok {
-		t.Errorf("expected success envelope, got error: %+v", envelope.Error)
+	if !result.Ok {
+		t.Errorf("expected success envelope, got ok=false")
 	}
-	if envelope.RowCount != 1 {
-		t.Errorf("expected 1 row, got %d", envelope.RowCount)
+	if result.Count != 1 {
+		t.Errorf("expected count=1, got %d", result.Count)
+	}
+	if len(result.Profiles) != 1 {
+		t.Errorf("expected 1 profile, got %d", len(result.Profiles))
+	}
+	if len(result.Profiles) > 0 {
+		if result.Profiles[0].Name != "globalonly" {
+			t.Errorf("expected profile name 'globalonly', got %s", result.Profiles[0].Name)
+		}
+		if result.Profiles[0].DSN != "mysql://user:****@localhost:3306/db" {
+			t.Errorf("expected masked DSN, got %s", result.Profiles[0].DSN)
+		}
+		if result.Profiles[0].Source != globalPath {
+			t.Errorf("expected source=%s, got %s", globalPath, result.Profiles[0].Source)
+		}
 	}
 }
 
@@ -787,29 +822,35 @@ func TestHandleConfigList_MergedView_LocalOverrides(t *testing.T) {
 
 	var buf bytes.Buffer
 	buf.ReadFrom(r)
-	var envelope output.Envelope
-	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+	var result struct {
+		Ok       bool `json:"ok"`
+		Profiles []struct {
+			Name   string `json:"name"`
+			DSN    string `json:"dsn"`
+			Source string `json:"source"`
+		} `json:"profiles"`
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
 		t.Fatalf("failed to parse output: %v", err)
 	}
 
-	if !envelope.Ok {
-		t.Errorf("expected success envelope, got error: %+v", envelope.Error)
+	if !result.Ok {
+		t.Errorf("expected success envelope, got ok=false")
 	}
 
 	// Should have 3 profiles: global, local, sharedkey (local overrides)
-	if envelope.RowCount != 3 {
-		t.Errorf("expected 3 rows, got %d", envelope.RowCount)
+	if result.Count != 3 {
+		t.Errorf("expected count=3, got %d", result.Count)
+	}
+	if len(result.Profiles) != 3 {
+		t.Errorf("expected 3 profiles, got %d", len(result.Profiles))
 	}
 
 	// Verify alphabetical order
-	var names []string
-	for _, row := range envelope.Rows {
-		rowArr, ok := row.([]any)
-		if ok && len(rowArr) >= 2 {
-			if name, ok := rowArr[0].(string); ok {
-				names = append(names, name)
-			}
-		}
+	names := make([]string, 0, len(result.Profiles))
+	for _, p := range result.Profiles {
+		names = append(names, p.Name)
 	}
 	for i := 1; i < len(names); i++ {
 		if names[i] < names[i-1] {
@@ -820,15 +861,17 @@ func TestHandleConfigList_MergedView_LocalOverrides(t *testing.T) {
 
 	// Verify sharedkey was overridden (local value)
 	foundSharedkey := false
-	for _, row := range envelope.Rows {
-		rowArr, ok := row.([]any)
-		if ok && len(rowArr) >= 2 {
-			if name, ok := rowArr[0].(string); ok && name == "sharedkey" {
-				foundSharedkey = true
-				dsn, _ := rowArr[1].(string)
-				if dsn != "mysql://user:****@local:3306/db" {
-					t.Errorf("expected sharedkey to be overridden by local, got %s", dsn)
-				}
+	for _, p := range result.Profiles {
+		if p.Name == "sharedkey" {
+			foundSharedkey = true
+			if p.DSN != "mysql://user:****@local:3306/db" {
+				t.Errorf("expected sharedkey to be overridden by local, got %s", p.DSN)
+			}
+			// Normalize path for macOS /var -> /private/var symlink
+			normalizedSource, _ := filepath.EvalSymlinks(p.Source)
+			normalizedLocalPath, _ := filepath.EvalSymlinks(localPath)
+			if normalizedSource != normalizedLocalPath {
+				t.Errorf("expected sharedkey source=%s, got %s", localPath, p.Source)
 			}
 		}
 	}

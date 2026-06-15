@@ -1,6 +1,7 @@
 package command
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -189,17 +190,19 @@ func handleConfigAdd(args []string) int {
 
 	elapsedMs := time.Since(startTime).Milliseconds()
 
-	// Write success envelope
-	envelope := output.NewSuccessEnvelope(
-		[]output.Column{
-			{Name: "name", Type: "VARCHAR"},
-			{Name: "dsn", Type: "VARCHAR"},
-		},
-		[]any{[]any{name, maskDSN(dsn)}},
-		elapsedMs,
-	)
-	envelope.Action = action
-	_ = output.WriteEnvelope(envelope)
+	// Output spec-compliant envelope directly.
+	// Only include "action" when the profile actually changed (created or overwritten).
+	envelope := map[string]any{
+		"ok":         true,
+		"profile":    name,
+		"dsn":       maskDSN(dsn),
+		"path":      targetPath,
+		"elapsed_ms": elapsedMs,
+	}
+	if action == "created" || action == "overwritten" {
+		envelope["action"] = action
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(envelope)
 
 	return 0
 }
@@ -239,9 +242,6 @@ func handleConfigList(args []string) int {
 		return output.ErrorCodeConfigError.ExitCode()
 	}
 
-	var pm config.ProfileMap
-	var err error
-
 	switch {
 	case isLocal:
 		cwd, err := os.Getwd()
@@ -255,56 +255,119 @@ func handleConfigList(args []string) int {
 			return output.ErrorCodeConfigError.ExitCode()
 		}
 		localPath := filepath.Join(cwd, ".sql-cli.yaml")
-		pm, err = config.LoadProfileMap(localPath)
-		if err != nil {
-			pm = config.ProfileMap{}
-			err = nil
+		var pm config.ProfileMap
+		if loaded, err := config.LoadProfileMap(localPath); err == nil {
+			pm = loaded
 		}
+		sortedNames := make([]string, 0, len(pm))
+		for name := range pm {
+			sortedNames = append(sortedNames, name)
+		}
+		sort.Strings(sortedNames)
+
+		elapsedMs := time.Since(startTime).Milliseconds()
+		profiles := make([]map[string]string, 0, len(sortedNames))
+		for _, name := range sortedNames {
+			profiles = append(profiles, map[string]string{
+				"name":   name,
+				"dsn":    maskDSN(pm[name]),
+				"source": localPath,
+			})
+		}
+		envelope := map[string]any{
+			"ok":        true,
+			"profiles":  profiles,
+			"count":     len(profiles),
+			"elapsed_ms": elapsedMs,
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(envelope)
+		return 0
 	case isGlobal:
 		globalPath := config.FindGlobalConfigPath()
+		var pm config.ProfileMap
 		if globalPath != "" {
-			pm, err = config.LoadProfileMap(globalPath)
-			if err != nil {
-				pm = config.ProfileMap{}
-				err = nil
+			if loaded, err := config.LoadProfileMap(globalPath); err == nil {
+				pm = loaded
 			}
-		} else {
-			pm = config.ProfileMap{}
 		}
+		sortedNames := make([]string, 0, len(pm))
+		for name := range pm {
+			sortedNames = append(sortedNames, name)
+		}
+		sort.Strings(sortedNames)
+
+		elapsedMs := time.Since(startTime).Milliseconds()
+		profiles := make([]map[string]string, 0, len(sortedNames))
+		for _, name := range sortedNames {
+			profiles = append(profiles, map[string]string{
+				"name":   name,
+				"dsn":    maskDSN(pm[name]),
+				"source": globalPath,
+			})
+		}
+		envelope := map[string]any{
+			"ok":        true,
+			"profiles":  profiles,
+			"count":     len(profiles),
+			"elapsed_ms": elapsedMs,
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(envelope)
+		return 0
 	default:
-		// Merged view: local overrides global
-		pm, err = config.LoadMergedConfig()
-		if err != nil {
-			pm = config.ProfileMap{}
-			err = nil
+		// Merged view: load global and local separately to track sources,
+		// then merge with local taking precedence (same semantics as LoadMergedConfig).
+		globalPath := config.FindGlobalConfigPath()
+		globalPM := config.ProfileMap{}
+		if globalPath != "" {
+			if tmp, err := config.LoadProfileMap(globalPath); err == nil {
+				globalPM = tmp
+			}
 		}
+
+		cwd, _ := os.Getwd()
+		localPath := filepath.Join(cwd, ".sql-cli.yaml")
+		localPM := config.ProfileMap{}
+		if tmp, err := config.LoadProfileMap(localPath); err == nil {
+			localPM = tmp
+		}
+
+		merged := config.MergeProfiles(globalPM, localPM)
+
+		// Build sources map: global first, then local overrides
+		sources := make(map[string]string)
+		for name := range globalPM {
+			sources[name] = globalPath
+		}
+		for name := range localPM {
+			sources[name] = localPath
+		}
+
+		// Output with source tracking
+		sortedNames := make([]string, 0, len(merged))
+		for name := range merged {
+			sortedNames = append(sortedNames, name)
+		}
+		sort.Strings(sortedNames)
+
+		elapsedMs := time.Since(startTime).Milliseconds()
+		profiles := make([]map[string]string, 0, len(sortedNames))
+		for _, name := range sortedNames {
+			profiles = append(profiles, map[string]string{
+				"name":   name,
+				"dsn":    maskDSN(merged[name]),
+				"source": sources[name],
+			})
+		}
+
+		envelope := map[string]any{
+			"ok":        true,
+			"profiles":  profiles,
+			"count":     len(profiles),
+			"elapsed_ms": elapsedMs,
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(envelope)
+		return 0
 	}
-
-	// Build sorted rows
-	sortedNames := make([]string, 0, len(pm))
-	for name := range pm {
-		sortedNames = append(sortedNames, name)
-	}
-	sort.Strings(sortedNames)
-
-	rows := make([]any, 0, len(sortedNames))
-	for _, name := range sortedNames {
-		rows = append(rows, []any{name, maskDSN(pm[name])})
-	}
-
-	elapsedMs := time.Since(startTime).Milliseconds()
-
-	envelope := output.NewSuccessEnvelope(
-		[]output.Column{
-			{Name: "name", Type: "VARCHAR"},
-			{Name: "dsn", Type: "VARCHAR"},
-		},
-		rows,
-		elapsedMs,
-	)
-	_ = output.WriteEnvelope(envelope)
-
-	return 0
 }
 
 // maskDSN masks the password in a mysql:// URL.
