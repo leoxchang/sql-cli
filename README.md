@@ -92,6 +92,21 @@ Output:
 }
 ```
 
+### indexes - Show index metadata
+
+```bash
+sql-cli --dsn mysql://user:pass@host:3306/mydb indexes mydb.users
+# or use aliases:
+sql-cli --dsn mysql://user:pass@host:3306/mydb idx mydb.users
+sql-cli --dsn mysql://user:pass@host:3306/mydb keys mydb.users
+```
+
+Argument format matches `describe`: `<db>.<table>` or just `<table>` (database taken from DSN URL path).
+
+Output columns: `INDEX_NAME`, `NON_UNIQUE`, `SEQ_IN_INDEX`, `COLUMN_NAME`, `COLLATION`, `CARDINALITY`, `SUB_PART`, `PACKED`, `NULLABLE`, `INDEX_TYPE`, `COMMENT`, `INDEX_COMMENT`, `IS_VISIBLE`, `EXPRESSION`
+
+Compatible with MySQL 5.7, 8.0, and 8.0.13+ — the `IS_VISIBLE` and `EXPRESSION` columns are probed at runtime and faked as empty strings on versions that don't expose them.
+
 ### query - Execute SQL queries
 
 #### Positional argument
