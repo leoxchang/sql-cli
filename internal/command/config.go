@@ -41,6 +41,8 @@ func HandleConfig(args []string) int {
 		return handleConfigList(args[1:])
 	case "remove":
 		return handleConfigRemove(args[1:])
+	case "rename":
+		return handleConfigRename(args[1:])
 	default:
 		errEnvelope := output.NewErrorEnvelope(
 			output.ErrorCodeConfigError,
@@ -501,6 +503,211 @@ func handleConfigRemove(args []string) int {
 		"ok":         true,
 		"action":     action,
 		"profile":    name,
+		"path":       targetPath,
+		"elapsed_ms": time.Since(startTime).Milliseconds(),
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(envelope)
+	return 0
+}
+
+// handleConfigRename implements `config rename <old> <new> [--global]`.
+// Returns exit code 0 on success or idempotent not-found/unchanged, 2 for CONFIG_ERROR, 99 for INTERNAL_ERROR.
+func handleConfigRename(args []string) int {
+	// Flag parsing: --global only.
+	isGlobal := false
+	positional := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--global" {
+			isGlobal = true
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeConfigError,
+				fmt.Sprintf("unknown flag %q: config rename accepts only --global", arg),
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeConfigError.ExitCode()
+		}
+		positional = append(positional, arg)
+	}
+
+	if len(positional) < 1 {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			"old and new names required: config rename <old> <new> [--global]",
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+	if len(positional) < 2 {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			"new name required: config rename <old> <new> [--global]",
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+	if len(positional) > 2 {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			fmt.Sprintf("unexpected extra arguments: config rename <old> <new> [--global] (got %d positional args)", len(positional)),
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+
+	oldName := positional[0]
+	newName := positional[1]
+
+	if !profileNameRegex.MatchString(oldName) {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			fmt.Sprintf("invalid old profile name %q: must match ^[A-Za-z0-9_][A-Za-z0-9_.-]*$", oldName),
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+	if !profileNameRegex.MatchString(newName) {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			fmt.Sprintf("invalid new profile name %q: must match ^[A-Za-z0-9_][A-Za-z0-9_.-]*$", newName),
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+
+	// old == new → unchanged, no disk write.
+	if oldName == newName {
+		// Still need path for envelope; resolve same as below.
+		var pathOnly string
+		if isGlobal {
+			pathOnly = config.FindGlobalConfigPath()
+			if pathOnly == "" {
+				home, _ := os.UserHomeDir()
+				if home == "" {
+					home = os.Getenv("HOME")
+				}
+				if home == "" {
+					pathOnly = filepath.Join(".", ".sql-cli", "config.yaml")
+				} else {
+					pathOnly = filepath.Join(home, ".sql-cli", "config.yaml")
+				}
+			}
+		} else {
+			cwd, _ := os.Getwd()
+			pathOnly = filepath.Join(cwd, ".sql-cli.yaml")
+		}
+		envelope := map[string]any{
+			"ok":         true,
+			"action":     "unchanged",
+			"from":       oldName,
+			"to":         newName,
+			"path":       pathOnly,
+			"elapsed_ms": 0,
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(envelope)
+		return 0
+	}
+
+	// Resolve target path (mirror handleConfigRemove logic).
+	var targetPath string
+	if isGlobal {
+		targetPath = config.FindGlobalConfigPath()
+		if targetPath == "" {
+			home, _ := os.UserHomeDir()
+			if home == "" {
+				home = os.Getenv("HOME")
+			}
+			if home == "" {
+				errEnvelope := output.NewErrorEnvelope(
+					output.ErrorCodeConfigError,
+					"cannot determine home directory for global config",
+					nil,
+				)
+				_ = output.WriteError(errEnvelope)
+				return output.ErrorCodeConfigError.ExitCode()
+			}
+			targetPath = filepath.Join(home, ".sql-cli", "config.yaml")
+		}
+	} else {
+		cwd, err := os.Getwd()
+		if err != nil {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeInternalError,
+				fmt.Sprintf("failed to get current directory: %v", err),
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeInternalError.ExitCode()
+		}
+		targetPath = filepath.Join(cwd, ".sql-cli.yaml")
+	}
+
+	// Load (treat missing/unreadable as empty map).
+	pm, err := config.LoadProfileMap(targetPath)
+	if err != nil {
+		if pm == nil {
+			pm = config.ProfileMap{}
+		} else {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeConfigError,
+				fmt.Sprintf("failed to load config: %v", err),
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeConfigError.ExitCode()
+		}
+	}
+
+	startTime := time.Now()
+	dsn, oldExists := pm[oldName]
+	if !oldExists {
+		envelope := map[string]any{
+			"ok":         true,
+			"action":     "not_found",
+			"from":       oldName,
+			"to":         newName,
+			"path":       targetPath,
+			"elapsed_ms": time.Since(startTime).Milliseconds(),
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(envelope)
+		return 0
+	}
+
+	if _, newExists := pm[newName]; newExists {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			fmt.Sprintf("cannot rename: profile %q already exists in %s", newName, targetPath),
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+
+	delete(pm, oldName)
+	pm[newName] = dsn
+	if err := config.WriteProfileMap(targetPath, pm); err != nil {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeInternalError,
+			fmt.Sprintf("failed to write config: %v", err),
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeInternalError.ExitCode()
+	}
+
+	envelope := map[string]any{
+		"ok":         true,
+		"action":     "renamed",
+		"from":       oldName,
+		"to":         newName,
 		"path":       targetPath,
 		"elapsed_ms": time.Since(startTime).Milliseconds(),
 	}
