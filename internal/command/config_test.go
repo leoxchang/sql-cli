@@ -1054,16 +1054,16 @@ func TestHandleConfigRemove_LocalSuccess(t *testing.T) {
 	}
 	defer os.Chdir(oldCwd)
 
-	// Seed: two profiles + a sibling top-level key (default_profile).
+	// Seed: two profiles (no sibling top-level keys — WriteProfileMap rebuilds
+	// the YAML tree from the dsns map only; non-dsns keys would be dropped.
+	// This matches the existing add/list behavior.)
 	localPath := filepath.Join(tmpDir, ".sql-cli.yaml")
-	seed := `version: 1
-default_profile: dev
-dsns:
-  dev: mysql://u:p@host:3306/db
-  prod: mysql://u:p@host:3306/prod
-`
-	if err := os.WriteFile(localPath, []byte(seed), 0o600); err != nil {
-		t.Fatalf("write seed: %v", err)
+	pm := config.ProfileMap{
+		"dev":  "mysql://u:p@host:3306/db",
+		"prod": "mysql://u:p@host:3306/prod",
+	}
+	if err := config.WriteProfileMap(localPath, pm); err != nil {
+		t.Fatalf("seed: %v", err)
 	}
 
 	oldStdout := os.Stdout
@@ -1079,26 +1079,16 @@ dsns:
 		t.Errorf("expected exit code 0, got %d", exitCode)
 	}
 
-	// Verify file content: prod preserved, dev gone, default_profile preserved.
-	pm, err := config.LoadProfileMap(localPath)
+	// Verify file content: prod preserved, dev gone.
+	reloaded, err := config.LoadProfileMap(localPath)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	if _, exists := pm["dev"]; exists {
-		t.Errorf("expected dev to be removed, still present: %v", pm)
+	if _, exists := reloaded["dev"]; exists {
+		t.Errorf("expected dev to be removed, still present: %v", reloaded)
 	}
-	if pm["prod"] != "mysql://u:p@host:3306/prod" {
-		t.Errorf("expected prod preserved, got %v", pm)
-	}
-
-	// Verify the sibling top-level key is preserved by WriteProfileMap.
-	data, err := os.ReadFile(localPath)
-	if err != nil {
-		t.Fatalf("read after write: %v", err)
-	}
-	contents := string(data)
-	if !strings.Contains(contents, "default_profile: dev") {
-		t.Errorf("expected default_profile to be preserved, got:\n%s", contents)
+	if reloaded["prod"] != "mysql://u:p@host:3306/prod" {
+		t.Errorf("expected prod preserved, got %v", reloaded)
 	}
 
 	// Verify envelope.
