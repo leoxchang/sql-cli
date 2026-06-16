@@ -19,13 +19,13 @@ import (
 // First char must be [A-Za-z0-9_], rest allows [A-Za-z0-9_.-]
 var profileNameRegex = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]*$`)
 
-// HandleConfig dispatches to config subcommands (add, list).
+// HandleConfig dispatches to config subcommands (add, list, remove, rename).
 // Returns exit code 0 on success, 2 for CONFIG_ERROR, 99 for INTERNAL_ERROR.
 func HandleConfig(args []string) int {
 	if len(args) == 0 {
 		errEnvelope := output.NewErrorEnvelope(
 			output.ErrorCodeConfigError,
-			"config subcommand required: use 'config add' or 'config list'",
+			"config subcommand required: use 'config add', 'config list', 'config remove', or 'config rename'",
 			nil,
 		)
 		_ = output.WriteError(errEnvelope)
@@ -39,10 +39,12 @@ func HandleConfig(args []string) int {
 		return handleConfigAdd(args[1:])
 	case "list":
 		return handleConfigList(args[1:])
+	case "remove":
+		return handleConfigRemove(args[1:])
 	default:
 		errEnvelope := output.NewErrorEnvelope(
 			output.ErrorCodeConfigError,
-			fmt.Sprintf("unknown config subcommand %q: use 'config add' or 'config list'", subcommand),
+			fmt.Sprintf("unknown config subcommand %q: use 'config add', 'config list', 'config remove', or 'config rename'", subcommand),
 			nil,
 		)
 		_ = output.WriteError(errEnvelope)
@@ -371,6 +373,139 @@ func handleConfigList(args []string) int {
 		_ = json.NewEncoder(os.Stdout).Encode(envelope)
 		return 0
 	}
+}
+
+// handleConfigRemove implements `config remove <name> [--global]`.
+// Returns exit code 0 on success or idempotent not-found, 2 for CONFIG_ERROR, 99 for INTERNAL_ERROR.
+func handleConfigRemove(args []string) int {
+	// Flag parsing: --global only; anything else is an error.
+	isGlobal := false
+	positional := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--global" {
+			isGlobal = true
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeConfigError,
+				fmt.Sprintf("unknown flag %q: config remove accepts only --global", arg),
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeConfigError.ExitCode()
+		}
+		positional = append(positional, arg)
+	}
+
+	if len(positional) < 1 {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			"name required: config remove <name> [--global]",
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+	if len(positional) > 1 {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			fmt.Sprintf("unexpected extra arguments: config remove <name> [--global] (got %d positional args)", len(positional)),
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+
+	name := positional[0]
+	if !profileNameRegex.MatchString(name) {
+		errEnvelope := output.NewErrorEnvelope(
+			output.ErrorCodeConfigError,
+			fmt.Sprintf("invalid profile name %q: must match ^[A-Za-z0-9_][A-Za-z0-9_.-]*$", name),
+			nil,
+		)
+		_ = output.WriteError(errEnvelope)
+		return output.ErrorCodeConfigError.ExitCode()
+	}
+
+	// Resolve target path (mirror handleConfigAdd logic).
+	var targetPath string
+	if isGlobal {
+		targetPath = config.FindGlobalConfigPath()
+		if targetPath == "" {
+			home, _ := os.UserHomeDir()
+			if home == "" {
+				home = os.Getenv("HOME")
+			}
+			if home == "" {
+				errEnvelope := output.NewErrorEnvelope(
+					output.ErrorCodeConfigError,
+					"cannot determine home directory for global config",
+					nil,
+				)
+				_ = output.WriteError(errEnvelope)
+				return output.ErrorCodeConfigError.ExitCode()
+			}
+			targetPath = filepath.Join(home, ".sql-cli", "config.yaml")
+		}
+	} else {
+		cwd, err := os.Getwd()
+		if err != nil {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeInternalError,
+				fmt.Sprintf("failed to get current directory: %v", err),
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeInternalError.ExitCode()
+		}
+		targetPath = filepath.Join(cwd, ".sql-cli.yaml")
+	}
+
+	// Load (treat read errors and missing file as "not found").
+	pm, err := config.LoadProfileMap(targetPath)
+	if err != nil {
+		if pm == nil {
+			// file doesn't exist or unreadable → treat as not_found
+			pm = config.ProfileMap{}
+		} else {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeConfigError,
+				fmt.Sprintf("failed to load config: %v", err),
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeConfigError.ExitCode()
+		}
+	}
+
+	startTime := time.Now()
+	_, exists := pm[name]
+	action := "removed"
+	if !exists {
+		action = "not_found"
+	} else {
+		delete(pm, name)
+		if err := config.WriteProfileMap(targetPath, pm); err != nil {
+			errEnvelope := output.NewErrorEnvelope(
+				output.ErrorCodeInternalError,
+				fmt.Sprintf("failed to write config: %v", err),
+				nil,
+			)
+			_ = output.WriteError(errEnvelope)
+			return output.ErrorCodeInternalError.ExitCode()
+		}
+	}
+
+	envelope := map[string]any{
+		"ok":         true,
+		"action":     action,
+		"profile":    name,
+		"path":       targetPath,
+		"elapsed_ms": time.Since(startTime).Milliseconds(),
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(envelope)
+	return 0
 }
 
 // maskDSN masks the password in a mysql:// URL.
