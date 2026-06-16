@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/qiezi999/sql-cli/internal/config"
 	"github.com/qiezi999/sql-cli/internal/output"
 )
 
@@ -132,7 +133,7 @@ func TestEndToEnd_AddGlobal(t *testing.T) {
 		t.Fatalf("failed to create .sql-cli dir: %v", err)
 	}
 
-	stdout, _, exitCode := runConfig(t, tmpDir, "config", "add", "--global", "staging", "mysql://admin:secret@prod:3306/stagingdb")
+	_, _, exitCode := runConfig(t, tmpDir, "config", "add", "--global", "staging", "mysql://admin:secret@prod:3306/stagingdb")
 
 	if exitCode != 0 {
 		t.Errorf("expected exit code 0, got %d", exitCode)
@@ -323,5 +324,165 @@ func TestEndToEnd_NoChmodOnExistingFile(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o644 {
 		t.Errorf("expected existing file permissions 0644 to be preserved, got %o", info.Mode().Perm())
+	}
+}
+
+// TestIntegration_ConfigRemove_ThenAdd verifies that a profile can be removed
+// and re-added under the same name with the original DSN — the state transitions
+// cleanly through remove → re-add without leftover residue.
+func TestIntegration_ConfigRemove_ThenAdd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	localPath := filepath.Join(tmpDir, ".sql-cli.yaml")
+	dsn := "mysql://u:p@host:3306/db"
+
+	// add dev
+	stdout, _, code := runConfig(t, tmpDir, "config", "add", "dev", dsn)
+	if code != 0 {
+		t.Fatalf("add dev: exit %d stdout=%s", code, stdout)
+	}
+	pm, err := config.LoadProfileMap(localPath)
+	if err != nil {
+		t.Fatalf("reload after add: %v", err)
+	}
+	if pm["dev"] != dsn {
+		t.Fatalf("expected dev present, got %v", pm)
+	}
+
+	// remove dev
+	stdout, _, code = runConfig(t, tmpDir, "config", "remove", "dev")
+	if code != 0 {
+		t.Fatalf("remove dev: exit %d stdout=%s", code, stdout)
+	}
+	pm, err = config.LoadProfileMap(localPath)
+	if err != nil {
+		t.Fatalf("reload after remove: %v", err)
+	}
+	if _, exists := pm["dev"]; exists {
+		t.Fatalf("expected dev removed, got %v", pm)
+	}
+
+	// re-add same name → should be "created" again
+	_, _, code = runConfig(t, tmpDir, "config", "add", "dev", dsn)
+	if code != 0 {
+		t.Fatalf("re-add dev: exit %d", code)
+	}
+	pm, err = config.LoadProfileMap(localPath)
+	if err != nil {
+		t.Fatalf("reload after re-add: %v", err)
+	}
+	if pm["dev"] != dsn {
+		t.Fatalf("expected dev present after re-add, got %v", pm)
+	}
+}
+
+// TestIntegration_ConfigRename_VisibleViaList verifies that after renaming
+// a profile, `config list --local` reflects the new name and no longer shows
+// the old name.
+func TestIntegration_ConfigRename_VisibleViaList(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	// add dev
+	if _, _, code := runConfig(t, tmpDir, "config", "add", "dev", "mysql://u:p@host:3306/db"); code != 0 {
+		t.Fatalf("add: exit %d", code)
+	}
+
+	// rename dev → production
+	if _, _, code := runConfig(t, tmpDir, "config", "rename", "dev", "production"); code != 0 {
+		t.Fatalf("rename: exit %d", code)
+	}
+
+	// list --local, expect only production
+	stdout, _, code := runConfig(t, tmpDir, "config", "list", "--local")
+	if code != 0 {
+		t.Fatalf("list: exit %d", code)
+	}
+
+	var result struct {
+		Ok       bool `json:"ok"`
+		Count    int  `json:"count"`
+		Profiles []struct {
+			Name string `json:"name"`
+			DSN  string `json:"dsn"`
+		} `json:"profiles"`
+	}
+	if err := json.Unmarshal(stdout, &result); err != nil {
+		t.Fatalf("parse list: %v\nstdout: %s", err, stdout)
+	}
+	if result.Count != 1 {
+		t.Fatalf("expected 1 profile after rename, got %d (%+v)", result.Count, result)
+	}
+	if result.Profiles[0].Name != "production" {
+		t.Errorf("expected name=production, got %s", result.Profiles[0].Name)
+	}
+}
+
+// TestIntegration_ConfigRemove_LocalDoesNotTouchGlobal verifies that a default
+// (local-scope) `config remove` only affects the local file — a same-named
+// profile in the global config is preserved untouched.
+func TestIntegration_ConfigRemove_LocalDoesNotTouchGlobal(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	// Seed global with "shared" via WriteProfileMap (avoid binary dependency).
+	globalPath := filepath.Join(tmpDir, ".sql-cli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatalf("mkdir global: %v", err)
+	}
+	if err := config.WriteProfileMap(globalPath, config.ProfileMap{
+		"shared": "mysql://u:p@global:3306/db",
+	}); err != nil {
+		t.Fatalf("seed global: %v", err)
+	}
+
+	// Seed local with same name (same key, different DSN).
+	localPath := filepath.Join(tmpDir, ".sql-cli.yaml")
+	if err := config.WriteProfileMap(localPath, config.ProfileMap{
+		"shared": "mysql://u:p@local:3306/db",
+	}); err != nil {
+		t.Fatalf("seed local: %v", err)
+	}
+
+	// Default scope = local: removes only local "shared".
+	if _, _, code := runConfig(t, tmpDir, "config", "remove", "shared"); code != 0 {
+		t.Fatalf("remove: exit %d", code)
+	}
+
+	// Local: "shared" gone.
+	pmLocal, err := config.LoadProfileMap(localPath)
+	if err != nil {
+		t.Fatalf("reload local: %v", err)
+	}
+	if _, exists := pmLocal["shared"]; exists {
+		t.Errorf("expected local shared removed, got %v", pmLocal)
+	}
+
+	// Global: "shared" still there.
+	pmGlobal, err := config.LoadProfileMap(globalPath)
+	if err != nil {
+		t.Fatalf("reload global: %v", err)
+	}
+	if pmGlobal["shared"] != "mysql://u:p@global:3306/db" {
+		t.Errorf("expected global shared preserved, got %v", pmGlobal)
 	}
 }
