@@ -1329,3 +1329,247 @@ func TestHandleConfigRename_UnknownFlag(t *testing.T) {
 		t.Errorf("expected unknown-flag message, got %s", envelope.Error.Message)
 	}
 }
+
+// ============================================================
+// handleConfigRename success / conflict tests
+// ============================================================
+
+func TestHandleConfigRename_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldCwd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldCwd)
+
+	localPath := filepath.Join(tmpDir, ".sql-cli.yaml")
+	pm := config.ProfileMap{"dev": "mysql://u:p@host:3306/db"}
+	if err := config.WriteProfileMap(localPath, pm); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"dev", "production"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	reloaded, err := config.LoadProfileMap(localPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, exists := reloaded["dev"]; exists {
+		t.Errorf("expected dev removed, got %v", reloaded)
+	}
+	if reloaded["production"] != "mysql://u:p@host:3306/db" {
+		t.Errorf("expected production present, got %v", reloaded)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var env map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if env["action"] != "renamed" {
+		t.Errorf("expected action=renamed, got %v", env["action"])
+	}
+	if env["from"] != "dev" {
+		t.Errorf("expected from=dev, got %v", env["from"])
+	}
+	if env["to"] != "production" {
+		t.Errorf("expected to=production, got %v", env["to"])
+	}
+}
+
+func TestHandleConfigRename_OldNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldCwd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldCwd)
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"ghost", "production"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	// Confirm no file was created on not_found.
+	if _, err := os.Stat(filepath.Join(tmpDir, ".sql-cli.yaml")); !os.IsNotExist(err) {
+		t.Errorf("expected no .sql-cli.yaml, got err=%v", err)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var env map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if env["action"] != "not_found" {
+		t.Errorf("expected action=not_found, got %v", env["action"])
+	}
+}
+
+func TestHandleConfigRename_NewExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldCwd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldCwd)
+
+	localPath := filepath.Join(tmpDir, ".sql-cli.yaml")
+	pm := config.ProfileMap{
+		"dev":  "mysql://u:p@host:3306/dev",
+		"prod": "mysql://u:p@host:3306/prod",
+	}
+	if err := config.WriteProfileMap(localPath, pm); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"dev", "prod"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	// Confirm file unchanged: dev still present, prod still has its old value.
+	reloaded, err := config.LoadProfileMap(localPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded["dev"] != "mysql://u:p@host:3306/dev" {
+		t.Errorf("expected dev preserved, got %v", reloaded)
+	}
+	if reloaded["prod"] != "mysql://u:p@host:3306/prod" {
+		t.Errorf("expected prod preserved at its original value, got %v", reloaded)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if envelope.Error.Code != output.ErrorCodeConfigError {
+		t.Errorf("expected CONFIG_ERROR, got %s", envelope.Error.Code)
+	}
+	if !strings.Contains(envelope.Error.Message, "already exists") {
+		t.Errorf("expected 'already exists' message, got %s", envelope.Error.Message)
+	}
+}
+
+func TestHandleConfigRename_OldEqualsNew(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldCwd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldCwd)
+
+	localPath := filepath.Join(tmpDir, ".sql-cli.yaml")
+	pm := config.ProfileMap{"dev": "mysql://u:p@host:3306/db"}
+	if err := config.WriteProfileMap(localPath, pm); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Capture file mtime before; we expect no rewrite.
+	infoBefore, err := os.Stat(localPath)
+	if err != nil {
+		t.Fatalf("stat before: %v", err)
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"dev", "dev"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	infoAfter, err := os.Stat(localPath)
+	if err != nil {
+		t.Fatalf("stat after: %v", err)
+	}
+	if infoBefore.ModTime() != infoAfter.ModTime() {
+		t.Errorf("expected file unchanged (mtime), but file was rewritten")
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var env map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if env["action"] != "unchanged" {
+		t.Errorf("expected action=unchanged, got %v", env["action"])
+	}
+}
+
+func TestHandleConfigRename_GlobalSuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	globalPath := filepath.Join(tmpDir, ".sql-cli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	pm := config.ProfileMap{"prod": "mysql://u:p@host:3306/prod"}
+	if err := config.WriteProfileMap(globalPath, pm); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"--global", "prod", "production"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	reloaded, err := config.LoadProfileMap(globalPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, exists := reloaded["prod"]; exists {
+		t.Errorf("expected prod removed, got %v", reloaded)
+	}
+	if reloaded["production"] != "mysql://u:p@host:3306/prod" {
+		t.Errorf("expected production present, got %v", reloaded)
+	}
+}
