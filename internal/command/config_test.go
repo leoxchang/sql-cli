@@ -1188,3 +1188,144 @@ func TestHandleConfigRemove_GlobalSuccess(t *testing.T) {
 		t.Errorf("expected prod removed, got %v", reloaded)
 	}
 }
+
+// ============================================================
+// handleConfigRename argument validation tests
+// ============================================================
+
+func TestHandleConfigRename_MissingOld(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if envelope.Error.Code != output.ErrorCodeConfigError {
+		t.Errorf("expected CONFIG_ERROR, got %s", envelope.Error.Code)
+	}
+	if !strings.Contains(envelope.Error.Message, "old and new names required") {
+		t.Errorf("expected old/new required message, got %s", envelope.Error.Message)
+	}
+}
+
+func TestHandleConfigRename_MissingNew(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"dev"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if envelope.Error.Code != output.ErrorCodeConfigError {
+		t.Errorf("expected CONFIG_ERROR, got %s", envelope.Error.Code)
+	}
+	if !strings.Contains(envelope.Error.Message, "new name required") {
+		t.Errorf("expected new required message, got %s", envelope.Error.Message)
+	}
+}
+
+func TestHandleConfigRename_ExtraPositional(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"dev", "production", "extra"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if envelope.Error.Code != output.ErrorCodeConfigError {
+		t.Errorf("expected CONFIG_ERROR, got %s", envelope.Error.Code)
+	}
+}
+
+func TestHandleConfigRename_InvalidNewName(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"dev", "bad name"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if envelope.Error.Code != output.ErrorCodeConfigError {
+		t.Errorf("expected CONFIG_ERROR, got %s", envelope.Error.Code)
+	}
+	if !strings.Contains(envelope.Error.Message, "invalid new profile name") {
+		t.Errorf("expected invalid new name message, got %s", envelope.Error.Message)
+	}
+}
+
+func TestHandleConfigRename_UnknownFlag(t *testing.T) {
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRename([]string{"dev", "production", "--foo"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 2 {
+		t.Errorf("expected exit code 2, got %d", exitCode)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var envelope output.Envelope
+	if err := json.Unmarshal(buf.Bytes(), &envelope); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if envelope.Error.Code != output.ErrorCodeConfigError {
+		t.Errorf("expected CONFIG_ERROR, got %s", envelope.Error.Code)
+	}
+	if !strings.Contains(envelope.Error.Message, "unknown flag") {
+		t.Errorf("expected unknown-flag message, got %s", envelope.Error.Message)
+	}
+}
