@@ -998,3 +998,203 @@ func TestHandleConfigRemove_UnknownFlag(t *testing.T) {
 		t.Errorf("expected unknown-flag message, got %s", envelope.Error.Message)
 	}
 }
+
+// ============================================================
+// handleConfigRemove success-path tests
+// ============================================================
+
+func TestHandleConfigRemove_LocalNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldCwd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldCwd)
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRemove([]string{"ghost"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var env map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("failed to parse output: %v", err)
+	}
+	if ok, _ := env["ok"].(bool); !ok {
+		t.Errorf("expected ok=true, got %v", env)
+	}
+	if env["action"] != "not_found" {
+		t.Errorf("expected action=not_found, got %v", env["action"])
+	}
+	if env["profile"] != "ghost" {
+		t.Errorf("expected profile=ghost, got %v", env["profile"])
+	}
+
+	// Confirm no .sql-cli.yaml was created on idempotent not-found.
+	if _, err := os.Stat(filepath.Join(tmpDir, ".sql-cli.yaml")); !os.IsNotExist(err) {
+		t.Errorf("expected .sql-cli.yaml to NOT exist after not_found, got err=%v", err)
+	}
+}
+
+func TestHandleConfigRemove_LocalSuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldCwd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldCwd)
+
+	// Seed: two profiles + a sibling top-level key (default_profile).
+	localPath := filepath.Join(tmpDir, ".sql-cli.yaml")
+	seed := `version: 1
+default_profile: dev
+dsns:
+  dev: mysql://u:p@host:3306/db
+  prod: mysql://u:p@host:3306/prod
+`
+	if err := os.WriteFile(localPath, []byte(seed), 0o600); err != nil {
+		t.Fatalf("write seed: %v", err)
+	}
+
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRemove([]string{"dev"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	// Verify file content: prod preserved, dev gone, default_profile preserved.
+	pm, err := config.LoadProfileMap(localPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, exists := pm["dev"]; exists {
+		t.Errorf("expected dev to be removed, still present: %v", pm)
+	}
+	if pm["prod"] != "mysql://u:p@host:3306/prod" {
+		t.Errorf("expected prod preserved, got %v", pm)
+	}
+
+	// Verify the sibling top-level key is preserved by WriteProfileMap.
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		t.Fatalf("read after write: %v", err)
+	}
+	contents := string(data)
+	if !strings.Contains(contents, "default_profile: dev") {
+		t.Errorf("expected default_profile to be preserved, got:\n%s", contents)
+	}
+
+	// Verify envelope.
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	var env map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &env); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if env["action"] != "removed" {
+		t.Errorf("expected action=removed, got %v", env["action"])
+	}
+	if env["profile"] != "dev" {
+		t.Errorf("expected profile=dev, got %v", env["profile"])
+	}
+}
+
+func TestHandleConfigRemove_LocalDoesNotTouchGlobal(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+	oldCwd, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldCwd)
+
+	// Seed global with same profile name.
+	globalPath := filepath.Join(tmpDir, ".sql-cli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	globalPM := config.ProfileMap{"shared": "mysql://u:p@global:3306/db"}
+	if err := config.WriteProfileMap(globalPath, globalPM); err != nil {
+		t.Fatalf("seed global: %v", err)
+	}
+	// Local: .sql-cli.yaml does not exist.
+
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	// Default scope = local; profile only exists in global → not_found, no global change.
+	exitCode := handleConfigRemove([]string{"shared"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	// Confirm global still intact.
+	pm, err := config.LoadProfileMap(globalPath)
+	if err != nil {
+		t.Fatalf("reload global: %v", err)
+	}
+	if pm["shared"] != "mysql://u:p@global:3306/db" {
+		t.Errorf("expected global profile preserved, got %v", pm)
+	}
+}
+
+func TestHandleConfigRemove_GlobalSuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", oldHome)
+
+	globalPath := filepath.Join(tmpDir, ".sql-cli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(globalPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	pm := config.ProfileMap{"prod": "mysql://u:p@host:3306/prod"}
+	if err := config.WriteProfileMap(globalPath, pm); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	oldStdout := os.Stdout
+	_, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exitCode := handleConfigRemove([]string{"--global", "prod"})
+
+	w.Close()
+	os.Stdout = oldStdout
+
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+
+	reloaded, err := config.LoadProfileMap(globalPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, exists := reloaded["prod"]; exists {
+		t.Errorf("expected prod removed, got %v", reloaded)
+	}
+}
