@@ -208,6 +208,11 @@ Examples:
   sql-cli config add dev mysql://user:pass@localhost:3306/devdb
   sql-cli config add --global prod mysql://user:pass@prod:3306/proddb
   sql-cli config list
+  sql-cli config list --global
+  sql-cli config remove dev
+  sql-cli config remove --global prod
+  sql-cli config rename dev production
+  sql-cli config rename --global prod production
 
 Exit Codes:
   0   Success
