@@ -59,7 +59,8 @@ func Run(args []string) int {
 		return 0
 	}
 
-	// Check for help/version subcommands before DSN resolution
+	// Check for help/version/config subcommands before DSN resolution.
+	// These subcommands do not require a database connection.
 	if remaining[0] == "help" || remaining[0] == "--help" || remaining[0] == "-h" {
 		printHelp()
 		return 0
@@ -68,6 +69,11 @@ func Run(args []string) int {
 	if remaining[0] == "version" {
 		printVersion()
 		return 0
+	}
+
+	if remaining[0] == "config" {
+		// config add / config list do not need a DSN.
+		return handleConfig(remaining[1:])
 	}
 
 	// Reject --dsn + --profile together. --profile only makes sense as a
@@ -117,8 +123,6 @@ func dispatch(subcommand, dsn string, args []string) int {
 		return handleIndexes(dsn, args)
 	case "query":
 		return handleQuery(dsn, args)
-	case "config":
-		return handleConfig(args)
 	case "--help", "-h":
 		printHelp()
 		return 0
