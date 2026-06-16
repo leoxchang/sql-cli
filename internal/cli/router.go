@@ -195,6 +195,10 @@ Subcommands:
   config add <name> <dsn>
                         Save a named DSN profile to config file
   config list           List saved DSN profiles (with masked passwords)
+  config remove <name> [--global]
+                        Delete a saved DSN profile
+  config rename <old> <new> [--global]
+                        Rename a saved DSN profile
 
 Examples:
   sql-cli --dsn mysql://root:pass@localhost:3306/ databases
