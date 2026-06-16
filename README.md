@@ -289,6 +289,53 @@ Output:
 
 Profiles are listed in alphabetical order by name. DSNs are masked in output (password replaced with `****`). The `source` field shows which file each profile came from. Local profiles override global ones with the same name.
 
+### config remove — Delete a saved profile
+
+```bash
+# Remove from the local config (default).
+sql-cli config remove dev
+
+# Remove from the global config.
+sql-cli config remove --global prod
+```
+
+Exit code 0 either way. If the profile does not exist, the command still succeeds and returns `action: "not_found"` (idempotent — safe to retry).
+
+Output:
+```json
+{
+  "ok": true,
+  "action": "removed",
+  "profile": "dev",
+  "path": "/home/user/project/.sql-cli.yaml",
+  "elapsed_ms": 1
+}
+```
+
+### config rename — Rename a saved profile
+
+```bash
+# Rename in the local config (default).
+sql-cli config rename dev production
+
+# Rename in the global config.
+sql-cli config rename --global prod production
+```
+
+If the new name already exists in the same scope, the command exits 2 with `CONFIG_ERROR` and the old profile is preserved unchanged. Renaming a profile to its current name (`config rename dev dev`) is a no-op that returns `action: "unchanged"` without rewriting the file.
+
+Output:
+```json
+{
+  "ok": true,
+  "action": "renamed",
+  "from": "dev",
+  "to": "production",
+  "path": "/home/user/project/.sql-cli.yaml",
+  "elapsed_ms": 2
+}
+```
+
 ### Config file locations
 
 - **Local**: `.sql-cli.yaml` in the current working directory
