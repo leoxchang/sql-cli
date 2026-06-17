@@ -190,8 +190,9 @@ Subcommands:
                         Show table structure (alias: desc)
   indexes <database.table>
                         Show index metadata (aliases: idx, keys)
-  query <sql>           Execute SQL query (SELECT without LIMIT is capped
-                        at 1000 rows; override with SQL_CLI_MAX_ROWS)
+  query <sql>           Execute SQL query (DSN db or db.table) (SELECT
+                        without LIMIT is capped at 1000 rows; override
+                        with SQL_CLI_MAX_ROWS)
   config add <name> <dsn>
                         Save a named DSN profile to config file
   config list           List saved DSN profiles (with masked passwords)
