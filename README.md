@@ -145,6 +145,32 @@ Output:
 }
 ```
 
+#### Database resolution
+
+The `query` subcommand requires that the target database can be resolved. Exactly one of the following must hold:
+
+1. The DSN contains a default database (e.g. `mysql://user:pass@host:3306/mydb`), OR
+2. The SQL statement uses an explicit `db.table` qualifier (e.g. `SELECT * FROM mydb.users`)
+
+If neither holds, MySQL returns `1046 No database selected` and sql-cli surfaces it as `QUERY_ERROR` (exit 1). The database name is **not** carried as a separate flag — it must be encoded in the DSN path or in the SQL itself.
+
+Failure example (DSN with no path, unqualified SQL):
+
+```bash
+$ sql-cli --dsn mysql://root:pass@localhost:3306/ query "SELECT * FROM users"
+```
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "QUERY_ERROR",
+    "message": "Error 1046 (3D000): No database selected",
+    "details": { "mysql_error_code": 1046 }
+  }
+}
+```
+
 ## DSN Format
 
 The tool accepts MySQL DSNs in URL format only:
