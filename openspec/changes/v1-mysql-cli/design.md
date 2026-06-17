@@ -84,6 +84,10 @@ Nine codes: `CONFIG_ERROR`, `CONNECTION_ERROR`, `AUTH_ERROR`, `PERMISSION_DENIED
 - *Accept both* — doubles the test surface for marginal benefit. Rejected.
 - *No port segment: silently fall through to the driver, which would fail at `sql.Open` time with a non-actionable error* — original draft behaviour; rejected because the failure is invisible to the agent and the message does not point at "you forgot the port".
 
+### Runtime consequence
+
+The empty DSN path is **intentionally** allowed by D4 so that the `databases` subcommand and other admin queries (e.g. `SHOW DATABASES`) can run without a default database. This shifts database resolution responsibility to the SQL statement: if the DSN has no default database AND the SQL has no `db.table` qualifiers, MySQL returns `1046 No database selected` (`ERROR 3D000`) and sql-cli surfaces it as `QUERY_ERROR` (exit 1). The constraint is enforced at the documentation layer (README and `sql-cli query --help`), not at the code layer — `ValidateMySQLURL` and `ClassifyError` are deliberately unchanged.
+
 ### D5: Configuration precedence and absence behaviour
 
 **Decision:** Resolution order is `--dsn` flag → `SQL_CLI_DSN` env var → profile from config file (selected by `--profile <name>`) → absent (emit `CONFIG_ERROR` and exit 2). No fallback to `~/.my.cnf`.
