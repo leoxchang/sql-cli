@@ -145,6 +145,14 @@ Output:
 }
 ```
 
+#### Row limit
+
+`query` caps result sets: a `SELECT` without an explicit `LIMIT` gets one appended
+automatically (default **1000 rows**, override with `SQL_CLI_MAX_ROWS`). This also
+applies to aggregate queries — e.g. `SELECT dept, COUNT(*) FROM emp GROUP BY dept`
+returns at most 1000 groups. Statements that already contain `LIMIT`, `UNION`, or
+`INTO OUTFILE/DUMPFILE` are left untouched.
+
 #### Database resolution
 
 The `query` subcommand requires that the target database can be resolved. Exactly one of the following must hold:
@@ -221,6 +229,13 @@ export SQL_CLI_DSN="mysql://user:pass@host:3306/mydb?parseTime=true"
 sql-cli databases
 sql-cli tables mydb
 sql-cli query "SELECT * FROM users LIMIT 10"
+```
+
+Set `SQL_CLI_MAX_ROWS` to override the default 1000-row cap applied to `SELECT`
+queries (including `GROUP BY`/`HAVING` aggregates) without an explicit `LIMIT`:
+
+```bash
+export SQL_CLI_MAX_ROWS=5000
 ```
 
 **Precedence:** `--dsn` flag > `SQL_CLI_DSN` environment variable > `--profile` from config file > error

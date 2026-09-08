@@ -27,6 +27,9 @@ func AddLimitIfNeeded(sql string, maxRows int) string {
 		return sql
 	}
 
+	// 截断到最后一个语句结束分号，避免 `...; LIMIT 1000` 造成语法错误
+	sql = trimStatementTail(sql)
+
 	// 追加 LIMIT
 	return sql + " LIMIT " + itoa(maxRows)
 }
@@ -145,6 +148,94 @@ func hasLimitOrExclusion(sql string) bool {
 	}
 
 	return false
+}
+
+// trimStatementTail 截断 SQL 到最后一个不在字符串/注释内的分号处，
+// 移除语句终止符及其后的内容（尾随注释、空白、多余分号）。
+// 无分号时原样返回。
+func trimStatementTail(sql string) string {
+	i := 0
+	inString := false
+	inLineComment := false
+	inBlockComment := false
+	stringChar := byte(0)
+	lastSemicolon := -1
+
+	for i < len(sql) {
+		c := sql[i]
+
+		// 注释标记的双字符前瞻
+		if !inString && !inLineComment && i+1 < len(sql) {
+			two := sql[i : i+2]
+			if two == "/*" {
+				inBlockComment = true
+				i += 2
+				continue
+			}
+			if two == "--" {
+				inLineComment = true
+				i += 2
+				continue
+			}
+		}
+
+		// 块注释内
+		if inBlockComment {
+			if c == '*' && i+1 < len(sql) && sql[i+1] == '/' {
+				inBlockComment = false
+				i += 2
+				continue
+			}
+			i++
+			continue
+		}
+
+		// 行注释内
+		if inLineComment {
+			if c == '\n' {
+				inLineComment = false
+			}
+			i++
+			continue
+		}
+
+		// 字符串内
+		if inString {
+			if c == stringChar {
+				// 检查转义引号
+				if i+1 < len(sql) && sql[i+1] == stringChar {
+					i += 2
+					continue
+				}
+				inString = false
+				i++
+				continue
+			}
+			i++
+			continue
+		}
+
+		// 字符串开始
+		if c == '\'' || c == '"' || c == '`' {
+			inString = true
+			stringChar = c
+			i++
+			continue
+		}
+
+		// 语句结束分号
+		if c == ';' {
+			lastSemicolon = i
+		}
+
+		i++
+	}
+
+	if lastSemicolon < 0 {
+		return sql
+	}
+	// 截断可能残留连续分号（如 `SELECT 1;;`），再收尾清理
+	return strings.TrimSpace(strings.TrimRight(sql[:lastSemicolon], ";"))
 }
 
 // hasFollowingKeyword 检查跳过的空白后是否有指定的关键字之一。

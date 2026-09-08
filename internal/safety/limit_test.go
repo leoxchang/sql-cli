@@ -51,6 +51,16 @@ func TestAddLimitIfNeeded(t *testing.T) {
 		// 边界情况
 		{"select with subquery", "SELECT * FROM (SELECT id FROM users) AS t", 1000, "SELECT * FROM (SELECT id FROM users) AS t LIMIT 1000"},
 		{"select with for update", "SELECT id FROM users FOR UPDATE", 1000, "SELECT id FROM users FOR UPDATE LIMIT 1000"},
+
+		// 末尾分号：追加前截断，避免 `...; LIMIT 1000` 语法错误
+		{"trailing semicolon", "SELECT id FROM users;", 1000, "SELECT id FROM users LIMIT 1000"},
+		{"trailing double semicolon", "SELECT id FROM users;;", 1000, "SELECT id FROM users LIMIT 1000"},
+		{"count aggregate with semicolon", "SELECT COUNT(*) FROM users;", 1000, "SELECT COUNT(*) FROM users LIMIT 1000"},
+		{"semicolon then line comment", "SELECT id FROM users; -- done", 1000, "SELECT id FROM users LIMIT 1000"},
+		{"semicolon then hash comment", "SELECT id FROM users; # done", 1000, "SELECT id FROM users LIMIT 1000"},
+		{"semicolon inside string literal", "SELECT ';' FROM users;", 1000, "SELECT ';' FROM users LIMIT 1000"},
+		{"semicolon inside backtick", "SELECT `a;b` FROM users;", 1000, "SELECT `a;b` FROM users LIMIT 1000"},
+		{"semicolon inside block comment", "SELECT id FROM users /* ; */;", 1000, "SELECT id FROM users /* ; */ LIMIT 1000"},
 	}
 
 	for _, tc := range cases {
