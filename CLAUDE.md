@@ -49,7 +49,7 @@ rtk test go test ./internal/safety/...
 rtk test go test -tags=integration -run TestSetupMySQLContainer ./internal/testhelpers/...
 ```
 
-**集成测试要求**：`testcontainers-go` 需要 Docker。`SKIP_DOCKER=1` 可在没有 Docker 的环境下跳过。
+**集成测试要求**：`testcontainers-go` 需要 Docker。需要 Docker 的测试（`-tags=integration` 的容器测试，以及 `internal/mysqldrv` 的容器单元测试）在设置 `SKIP_DOCKER=1` 时跳过，无 Docker 环境请带上该变量运行 `go test ./...`。
 
 **覆盖率门槛（CI 强制）**：`internal/{config,safety,output,mysqldrv}` 四个包 ≥ 80%；`cli/` 和 `command/` 不强制。
 
@@ -68,7 +68,7 @@ internal/config/            # DSN 解析与校验
   validator.go                # mysql:// URL 校验 + 转 driver DSN + 提取 db 名
 internal/safety/            # SQL 写操作扫描器 + LIMIT 注入器
   scanner.go                  # 状态机: 正常/字符串/行注释/块注释；11 个写关键字
-  limit.go                    # SELECT 无 LIMIT 时追加，默认 1000（SQL_CLI_MAX_ROWS 可覆盖）
+  limit.go                    # SELECT 无 LIMIT 时追加，默认 1000（SQL_CLI_MAX_ROWS 可覆盖；GROUP BY/HAVING 聚合同样受限）
 internal/mysqldrv/          # MySQL 驱动封装（包边界即为未来扩展点）
   driver.go                   # Open(ctx, dsn) (*sql.DB, error)
   classifier.go               # 错误分类: MySQL error number → ErrorCode

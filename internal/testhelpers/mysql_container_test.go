@@ -5,6 +5,7 @@ package testhelpers_test
 import (
 	"context"
 	"database/sql"
+	"os"
 	"strings"
 	"testing"
 
@@ -14,8 +15,8 @@ import (
 // TestSetupMySQLContainer verifies the helper creates a working MySQL container.
 // This test requires Docker to be running.
 func TestSetupMySQLContainer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	if testing.Short() || os.Getenv("SKIP_DOCKER") != "" {
+		t.Skip("Skipping integration test in short mode or when SKIP_DOCKER is set")
 	}
 
 	mysqlC := testhelpers.SetupMySQLContainer(t)
@@ -57,8 +58,8 @@ func TestSetupMySQLContainer(t *testing.T) {
 
 // TestSetupMySQLContainerWithDSN verifies the DSN-returning helper.
 func TestSetupMySQLContainerWithDSN(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	if testing.Short() || os.Getenv("SKIP_DOCKER") != "" {
+		t.Skip("Skipping integration test in short mode or when SKIP_DOCKER is set")
 	}
 
 	ctx := context.Background()
@@ -100,8 +101,8 @@ func TestSetupMySQLContainerWithDSN(t *testing.T) {
 
 // TestSetupMySQLContainer_DatabaseCreation verifies the testdb database exists.
 func TestSetupMySQLContainer_DatabaseCreation(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	if testing.Short() || os.Getenv("SKIP_DOCKER") != "" {
+		t.Skip("Skipping integration test in short mode or when SKIP_DOCKER is set")
 	}
 
 	mysqlC := testhelpers.SetupMySQLContainer(t)

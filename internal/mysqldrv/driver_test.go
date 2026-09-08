@@ -2,6 +2,7 @@ package mysqldrv
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -11,8 +12,8 @@ import (
 
 // TestOpen_ValidDSN tests successful database connection
 func TestOpen_ValidDSN(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	if testing.Short() || os.Getenv("SKIP_DOCKER") != "" {
+		t.Skip("Skipping integration test in short mode or when SKIP_DOCKER is set")
 	}
 
 	ctx := context.Background()
@@ -87,8 +88,8 @@ func TestOpen_InvalidDSN(t *testing.T) {
 
 // TestOpen_Timeout tests that Open respects context cancellation
 func TestOpen_Timeout(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	if testing.Short() || os.Getenv("SKIP_DOCKER") != "" {
+		t.Skip("Skipping integration test in short mode or when SKIP_DOCKER is set")
 	}
 
 	ctx := context.Background()
@@ -124,8 +125,8 @@ func TestOpen_Timeout(t *testing.T) {
 
 // TestOpen_ConnectionReuse tests that Open can be called multiple times
 func TestOpen_ConnectionReuse(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	if testing.Short() || os.Getenv("SKIP_DOCKER") != "" {
+		t.Skip("Skipping integration test in short mode or when SKIP_DOCKER is set")
 	}
 
 	ctx := context.Background()
@@ -171,8 +172,8 @@ func TestOpen_ConnectionReuse(t *testing.T) {
 
 // TestOpen_InvalidCredentials tests error handling for invalid credentials
 func TestOpen_InvalidCredentials(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	if testing.Short() || os.Getenv("SKIP_DOCKER") != "" {
+		t.Skip("Skipping integration test in short mode or when SKIP_DOCKER is set")
 	}
 
 	ctx := context.Background()
@@ -209,8 +210,8 @@ func TestOpen_InvalidCredentials(t *testing.T) {
 
 // TestOpen_ValidDSNWithParseTime tests connection with parseTime parameter
 func TestOpen_ValidDSNWithParseTime(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
+	if testing.Short() || os.Getenv("SKIP_DOCKER") != "" {
+		t.Skip("Skipping integration test in short mode or when SKIP_DOCKER is set")
 	}
 
 	ctx := context.Background()
